@@ -1,0 +1,13 @@
+[package]
+name = "escrow"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arch_program = { workspace = true }
+bitcoin = { workspace = true }
+saturn-bitcoin-transactions = { workspace = true }
+mempool-oracle-sdk = { workspace = true }
+saturn-collections = { workspace = true }
+saturn-safe-math = { workspace = true }
+borsh = { workspace = true }

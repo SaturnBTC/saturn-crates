@@ -1,0 +1,28 @@
+[package]
+name = "saturn-bitcoin-transactions"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+arch_program = { workspace = true }
+bitcoin = { workspace = true }
+hex = { workspace = true }
+mempool-oracle-sdk = { workspace = true }
+saturn-collections = { workspace = true }
+saturn-safe-math = { workspace = true }
+thiserror = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"], optional = true }
+utoipa = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+proptest = "1.5.0"
+
+[features]
+default = ["runes", "utxo-consolidation", "serde"]
+runes = []
+utxo-consolidation = []
+serde = ["dep:serde"]
+utoipa = ["dep:utoipa"]
