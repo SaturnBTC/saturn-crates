@@ -1,0 +1,5 @@
+error: `realloc` cannot be combined with `init` or `init_if_needed`
+ --> tests/compile_fail/realloc_with_init.rs:8:21
+  |
+8 |     #[account(init, realloc, payer = payer, space = 8)]
+  |                     ^^^^^^^

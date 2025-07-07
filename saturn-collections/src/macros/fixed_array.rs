@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 #[macro_export]
 macro_rules! declare_fixed_array {
     ($Name:ident, $T:ty, $SIZE:expr) => {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Pod, Zeroable)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
         #[repr(C)]
         pub struct $Name {
             items: [$T; $SIZE],
@@ -251,7 +251,7 @@ macro_rules! declare_fixed_array {
 mod tests {
     use super::*;
 
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
     #[repr(C)]
     struct TestItem {
         id: u32,

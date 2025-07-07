@@ -10,8 +10,8 @@ macro_rules! declare_fixed_option {
             Debug,
             // PartialEq,
             // Eq,
-            Pod,
-            Zeroable,
+            bytemuck::Pod,
+            bytemuck::Zeroable,
         )]
         pub struct $Name {
             item: $T,
@@ -36,7 +36,7 @@ macro_rules! declare_fixed_option {
         impl $Name {
             pub fn none() -> Self {
                 Self {
-                    item: <$T>::zeroed(),
+                    item: <$T as bytemuck::Zeroable>::zeroed(),
                     present: 0,
                     _padding: [0; $padding],
                 }
@@ -69,6 +69,14 @@ macro_rules! declare_fixed_option {
             pub fn as_ref(&self) -> Option<&$T> {
                 if self.is_some() {
                     Some(&self.item)
+                } else {
+                    None
+                }
+            }
+
+            pub fn as_mut(&mut self) -> Option<&mut $T> {
+                if self.is_some() {
+                    Some(&mut self.item)
                 } else {
                     None
                 }

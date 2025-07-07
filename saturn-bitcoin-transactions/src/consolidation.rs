@@ -1,11 +1,13 @@
 #[cfg(feature = "utxo-consolidation")]
-use arch_program::{input_to_sign::InputToSign, pubkey::Pubkey, MAX_BTC_TX_SIZE};
+use arch_program::{input_to_sign::InputToSign, pubkey::Pubkey, rune::RuneAmount, MAX_BTC_TX_SIZE};
 
 #[cfg(feature = "utxo-consolidation")]
 use bitcoin::{Transaction, TxIn, TxOut};
 
 #[cfg(feature = "utxo-consolidation")]
 use mempool_oracle_sdk::MempoolInfo;
+#[cfg(feature = "utxo-consolidation")]
+use saturn_collections::generic::fixed_set::FixedCapacitySet;
 use saturn_collections::generic::push_pop::PushPopCollection;
 
 #[cfg(feature = "utxo-consolidation")]
@@ -15,7 +17,7 @@ use crate::{
 };
 
 #[cfg(feature = "utxo-consolidation")]
-pub fn add_consolidation_utxos<T: AsRef<UtxoInfo>, C: PushPopCollection<InputToSign>>(
+pub fn add_consolidation_utxos<RS, T, C>(
     transaction: &mut Transaction,
     tx_statuses: &mut MempoolInfo,
     inputs_to_sign: &mut C,
@@ -24,7 +26,12 @@ pub fn add_consolidation_utxos<T: AsRef<UtxoInfo>, C: PushPopCollection<InputToS
     mempool_fee_rate: &FeeRate,
     new_potential_inputs_and_outputs: &NewPotentialInputsAndOutputs,
     program_input_size: usize,
-) -> (u64, usize) {
+) -> (u64, usize)
+where
+    RS: FixedCapacitySet<Item = RuneAmount> + Default,
+    T: AsRef<UtxoInfo<RS>>,
+    C: PushPopCollection<InputToSign>,
+{
     use bitcoin::{OutPoint, ScriptBuf, Sequence, TxIn, Witness};
 
     let mut total_input_amount = 0;
@@ -111,10 +118,13 @@ pub fn safe_add_input_to_transaction<C: PushPopCollection<InputToSign>>(
 ) -> Result<(), BitcoinTxError> {
     let input_index = transaction.input.len() as u32;
 
-    inputs_to_sign.push(InputToSign {
-        index: input_index,
-        signer: *signer,
-    });
+    inputs_to_sign
+        .push(InputToSign {
+            index: input_index,
+            signer: *signer,
+        })
+        .map_err(|_| BitcoinTxError::InputToSignListFull)?;
+
     transaction.input.push(input.clone());
 
     let total_size = estimate_tx_size_with_additional_inputs_outputs(
@@ -159,7 +169,7 @@ pub fn safe_add_output_to_transaction(
 #[cfg(feature = "utxo-consolidation")]
 mod tests {
     use crate::{
-        input_calc::ARCH_INPUT_SIZE, NewPotentialInputAmount,
+        input_calc::ARCH_INPUT_SIZE, utxo_info::SingleRuneSet, NewPotentialInputAmount,
         NewPotentialOutputAmount,
     };
 
@@ -169,6 +179,7 @@ mod tests {
     use super::*;
     use arch_program::utxo::UtxoMeta;
     use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
+    use saturn_collections::generic::push_pop::PushPopError;
     use std::str::FromStr;
 
     // Helper functions for creating test data
@@ -209,7 +220,7 @@ mod tests {
         vout: u32,
         value: u64,
         needs_consolidation: Option<f64>,
-    ) -> UtxoInfo {
+    ) -> UtxoInfo<SingleRuneSet> {
         UtxoInfo {
             meta: UtxoMeta::from(txid, vout),
             value,
@@ -229,8 +240,9 @@ mod tests {
     }
 
     impl PushPopCollection<InputToSign> for MockPushPopCollection {
-        fn push(&mut self, item: InputToSign) {
+        fn push(&mut self, item: InputToSign) -> Result<(), PushPopError> {
             self.items.push(item);
+            Ok(())
         }
 
         fn pop(&mut self) -> Option<InputToSign> {
@@ -604,7 +616,7 @@ mod tests {
         let pool_pubkey = Pubkey::default();
         let mempool_fee_rate = FeeRate::try_from(10.0).unwrap();
 
-        let utxos: Vec<UtxoInfo> = vec![]; // Empty collection
+        let utxos: Vec<UtxoInfo<SingleRuneSet>> = vec![]; // Empty collection
 
         let new_potential_inputs_and_outputs = NewPotentialInputsAndOutputs {
             inputs: None,

@@ -1,0 +1,5 @@
+error: `program_id` attribute requires `seeds = ...` to be specified unless the field is also marked `init`
+ --> tests/compile_fail/program_id_without_seeds.rs:6:5
+  |
+6 |     #[account(program_id = arch_program::pubkey::Pubkey::default())]
+  |     ^

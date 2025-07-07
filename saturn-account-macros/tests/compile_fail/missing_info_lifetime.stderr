@@ -1,0 +1,5 @@
+error: Struct deriving Accounts must declare a lifetime parameter named `'info` which is used for the account slice (e.g. `struct MyAccs<'info> { .. }`)
+ --> tests/compile_fail/missing_info_lifetime.rs:5:8
+  |
+5 | struct MissingLifetime {
+  |        ^^^^^^^^^^^^^^^

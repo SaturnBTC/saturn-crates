@@ -1,0 +1,5 @@
+error: `len = N` only valid on slice fields
+ --> tests/compile_fail/len_on_single.rs:5:5
+  |
+5 |     #[account(len = 2)]
+  |     ^

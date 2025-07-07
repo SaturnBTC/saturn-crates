@@ -17,18 +17,6 @@ pub enum MathError {
     ConversionError,
 }
 
-impl From<MathError> for u32 {
-    fn from(error: MathError) -> Self {
-        match error {
-            MathError::AdditionOverflow => 6000,
-            MathError::SubtractionOverflow => 6001,
-            MathError::MultiplicationOverflow => 6002,
-            MathError::DivisionOverflow => 6003,
-            MathError::ConversionError => 6004,
-        }
-    }
-}
-
 pub fn safe_add<T>(a: T, b: T) -> Result<T, MathError>
 where
     T: CheckedAdd,

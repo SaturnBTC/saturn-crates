@@ -11,10 +11,12 @@ hex = { workspace = true }
 mempool-oracle-sdk = { workspace = true }
 saturn-collections = { workspace = true }
 saturn-safe-math = { workspace = true }
-thiserror = { workspace = true }
+saturn-error = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"], optional = true }
 utoipa = { workspace = true, optional = true }
+ordinals = { workspace = true, optional = true }
+paste = "1"
 
 [dev-dependencies]
 serde_json = { workspace = true }
@@ -22,7 +24,7 @@ proptest = "1.5.0"
 
 [features]
 default = ["runes", "utxo-consolidation", "serde"]
-runes = []
+runes = ["ordinals"]
 utxo-consolidation = []
 serde = ["dep:serde"]
 utoipa = ["dep:utoipa"]

@@ -1,0 +1,5 @@
+error: expected attribute arguments in parentheses: #[account(...)]
+ --> tests/compile_fail/ref_slice_without_len.rs:5:7
+  |
+5 |     #[account]
+  |       ^^^^^^^

@@ -4,7 +4,18 @@ members = [
     "saturn-collections",
     "saturn-safe-math",
     "deps/*",
-    "examples/escrow",
+    "saturn-account-macros",
+    "saturn-account-parser",
+    "saturn-account-shards",
+    "saturn-account-shards-derive",
+    "saturn-bitcoin-transactions",
+    "saturn-collections",
+    "saturn-error",
+    "saturn-error-derive",
+    "saturn-safe-math",
+    "saturn-utxo-parser",
+    "saturn-utxo-parser-derive",
+    "saturn-program-macros",
 ]
 resolver = "2"
 
@@ -13,9 +24,19 @@ arch_program = { path = "./deps/program" }
 arch_sdk = { path = "./deps/sdk" }
 mempool-oracle-sdk = { path = "./deps/mempool_oracle_sdk" }
 
+saturn-account-shards = { path = "./saturn-account-shards" }
+saturn-account-shards-derive = { path = "./saturn-account-shards-derive" }
 saturn-bitcoin-transactions = { path = "./saturn-bitcoin-transactions" }
 saturn-collections = { path = "./saturn-collections" }
 saturn-safe-math = { path = "./saturn-safe-math" }
+saturn-utxo-parser = { path = "./saturn-utxo-parser" }
+saturn-utxo-parser-derive = { path = "./saturn-utxo-parser-derive" }
+saturn-account-parser = { path = "./saturn-account-parser" }
+saturn-account-macros = { path = "./saturn-account-macros" }
+
+# Saturn unified error handling
+saturn-error = { path = "./saturn-error" }
+saturn-error-derive = { path = "./saturn-error-derive" }
 
 anyhow = "1.0.82"
 base64 = "0.22.1"
@@ -28,6 +49,7 @@ serde_json = "1.0.116"
 serde_with = "3.9.0"
 sha256 = "1.5.0"
 thiserror = "1.0.61"
+trybuild = "1.0.105"
 libsecp256k1 = { version = "0.7.0", default-features = false, features = [
     "static-context",
 ] }
@@ -38,7 +60,10 @@ num-integer = "0.1.46"
 num-derive = "0.4.0"
 num-traits = "0.2"
 primitive-types = { version = "0.13.1", default-features = false }
+proc-macro2 = "1.0.95"
+quote = "1.0.40"
 rustversion = "1.0.14"
+syn = "2.0.104"
 tracing = "0.1.40"
 proptest = "1.5.0"
 rand = "0.8.5"
@@ -91,3 +116,4 @@ num_cpus = "1.16.0"
 # arch sdk
 bitcode = "0.6.4"
 uuid = { version = "1.12.1", features = ["borsh", "serde", "v4"] }
+insta = "1.43.1"

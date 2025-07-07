@@ -1,0 +1,5 @@
+error: `realloc` field requires `space = <expr>` in #[account] attribute to set the new data length
+ --> tests/compile_fail/realloc_without_space.rs:8:5
+  |
+8 |     #[account(realloc, payer = payer)]
+  |     ^

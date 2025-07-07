@@ -1,9 +1,15 @@
+use arch_program::rune::RuneAmount;
 use mempool_oracle_sdk::{MempoolData, MempoolInfo, TxStatus};
+use saturn_collections::generic::fixed_set::FixedCapacitySet;
 
 use crate::UtxoInfo;
 
-pub(crate) fn generate_mempool_info<const MAX_UTXOS: usize, const MAX_ACCOUNTS: usize>(
-    user_utxos: &[UtxoInfo],
+pub(crate) fn generate_mempool_info<
+    const MAX_UTXOS: usize,
+    const MAX_ACCOUNTS: usize,
+    RuneSet: FixedCapacitySet<Item = RuneAmount>,
+>(
+    user_utxos: &[UtxoInfo<RuneSet>],
     mempool_data: &MempoolData<MAX_UTXOS, MAX_ACCOUNTS>,
 ) -> MempoolInfo {
     let mut mempool_info = MempoolInfo::default();
@@ -37,11 +43,12 @@ pub(crate) fn generate_mempool_info<const MAX_UTXOS: usize, const MAX_ACCOUNTS: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utxo_info::SingleRuneSet;
     use arch_program::utxo::UtxoMeta;
     use mempool_oracle_sdk::{AccountMempoolInfo, MempoolData, MempoolInfo};
 
     /// Convenience helper to construct a mock `UtxoInfo` with the desired txid/vout.
-    fn make_utxo(txid: [u8; 32], vout: u32) -> UtxoInfo {
+    fn make_utxo(txid: [u8; 32], vout: u32) -> UtxoInfo<SingleRuneSet> {
         UtxoInfo {
             meta: UtxoMeta::from(txid, vout),
             value: 0,
@@ -82,7 +89,10 @@ mod tests {
 
         let user_utxos = vec![make_utxo(txid1, 0), make_utxo(txid2, 1)];
 
-        let info = generate_mempool_info::<MAX_UTXOS, MAX_ACCOUNTS>(&user_utxos, &mempool_data);
+        let info = generate_mempool_info::<MAX_UTXOS, MAX_ACCOUNTS, SingleRuneSet>(
+            &user_utxos,
+            &mempool_data,
+        );
 
         assert_eq!(info.total_fee, 150);
         assert_eq!(info.total_size, 275);
@@ -112,7 +122,10 @@ mod tests {
         // Two UTXOs share the same transaction id but different vouts.
         let user_utxos = vec![make_utxo(txid, 0), make_utxo(txid, 1)];
 
-        let info = generate_mempool_info::<MAX_UTXOS, MAX_ACCOUNTS>(&user_utxos, &mempool_data);
+        let info = generate_mempool_info::<MAX_UTXOS, MAX_ACCOUNTS, SingleRuneSet>(
+            &user_utxos,
+            &mempool_data,
+        );
 
         assert_eq!(info.total_fee, 80);
         assert_eq!(info.total_size, 160);
@@ -143,7 +156,10 @@ mod tests {
         // Only one UTXO is pending, the other txid is not in the mempool (confirmed).
         let user_utxos = vec![make_utxo(pending_txid, 0), make_utxo(confirmed_txid, 0)];
 
-        let info = generate_mempool_info::<MAX_UTXOS, MAX_ACCOUNTS>(&user_utxos, &mempool_data);
+        let info = generate_mempool_info::<MAX_UTXOS, MAX_ACCOUNTS, SingleRuneSet>(
+            &user_utxos,
+            &mempool_data,
+        );
 
         assert_eq!(info.total_fee, 30);
         assert_eq!(info.total_size, 60);

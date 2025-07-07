@@ -6,12 +6,49 @@
 //! use inside the `bitcoin` dependency) and can therefore be called from on-chain programs that
 //! run inside the Solana BPF VM.
 //!
-//! A step-by-step walkthrough of the builder API, common patterns and advanced tips lives in the
-//! crate‐level README and is embedded in the generated docs via the attribute below.
-#![doc = include_str!("../README.md")]
+//! ## Key Features
+//!
+//! - **Zero-heap allocation**: Uses fixed-size collections for constrained environments
+//! - **Type-safe builder pattern**: Compile-time bounds prevent common mistakes
+//! - **Fee calculation**: Automatic fee estimation and adjustment with mempool ancestry tracking
+//! - **Rune support**: Optional rune transaction support when compiled with `runes` feature
+//! - **UTXO consolidation**: Optional consolidation features for managing fragmented UTXOs
+//! - **BPF compatibility**: Suitable for on-chain programs running in Solana BPF VM
+//!
+//! ## Quick Start
+//!
+//! ```rust
+//! use saturn_bitcoin_transactions::TransactionBuilder;
+//! use saturn_bitcoin_transactions::fee_rate::FeeRate;
+//!
+//! // Create a builder that can handle up to 8 modified accounts and 4 inputs to sign
+//! let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+//!
+//! // Add inputs, outputs, and state transitions...
+//! // (See TransactionBuilder documentation for detailed examples)
+//!
+//! // Adjust fees and finalize
+//! let fee_rate = FeeRate::try_from(10.0).unwrap(); // 10 sat/vB
+//! builder.adjust_transaction_to_pay_fees(&fee_rate, None)?;
+//! builder.finalize()?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+//!
+//! ## Architecture
+//!
+//! The crate is built around the [`TransactionBuilder`] which maintains:
+//! - A Bitcoin transaction under construction
+//! - Metadata about which program accounts have been modified
+//! - Information about which transaction inputs need signatures
+//! - Running totals for fee calculation and validation
+//!
+//! All data structures use fixed-size collections to ensure zero-heap allocation,
+//! making them suitable for constrained environments like the Solana BPF VM.
 
 use std::{cmp::Ordering, str::FromStr};
 
+#[cfg(feature = "runes")]
+use arch_program::rune::RuneAmount;
 use arch_program::{
     account::AccountInfo, helper::add_state_transition, input_to_sign::InputToSign,
     program::set_transaction_to_sign, program_error::ProgramError, pubkey::Pubkey, utxo::UtxoMeta,
@@ -21,7 +58,9 @@ use bitcoin::{
     TxOut, Txid, Witness,
 };
 use mempool_oracle_sdk::{MempoolData, MempoolInfo, TxStatus};
-use saturn_collections::generic::fixed_list::FixedList;
+#[cfg(feature = "runes")]
+use ordinals::{Artifact, Runestone};
+use saturn_collections::generic::{fixed_list::FixedList, fixed_set::FixedCapacitySet};
 
 use crate::{
     arch::create_account,
@@ -38,14 +77,11 @@ use crate::{
     utxo_info::UtxoInfo,
 };
 
-#[cfg(not(test))]
-use crate::arch::get_amount_in_tx_inputs;
-
 #[cfg(feature = "utxo-consolidation")]
 use crate::{consolidation::add_consolidation_utxos, input_calc::ARCH_INPUT_SIZE};
 
 mod arch;
-mod bytes;
+pub mod bytes;
 mod calc_fee;
 mod consolidation;
 pub mod constants;
@@ -55,24 +91,43 @@ pub mod input_calc;
 mod mempool;
 #[cfg(feature = "serde")]
 mod serde;
+pub mod util;
 pub mod utxo_info;
 #[cfg(feature = "serde")]
 pub mod utxo_info_json;
 
 #[derive(Clone, Copy, Debug, Default)]
-/// A wrapper around [`AccountInfo`] used exclusively inside [`TransactionBuilder`]
-/// to track **which program accounts have been mutated** by the instruction being
-/// executed.
+/// A zero-copy wrapper for tracking modified program accounts.
 ///
-/// The wrapper carries a lifetime parameter `'a` so it can store a borrowed
-/// reference to the actual account without requiring heap allocation.  Internally
-/// it is stored inside a [`FixedList`] so `TransactionBuilder` remains
-/// heap-free.
+/// `ModifiedAccount` is a lightweight wrapper around [`AccountInfo`] that enables
+/// [`TransactionBuilder`] to track which program accounts have been modified during
+/// transaction construction, without requiring heap allocation.
 ///
-/// When the wrapped value is [`None`] (the default) calling [`AsRef`] will panic
-/// which is fine because such a variant is never exposed outside of the private
-/// unit tests.
-pub struct ModifiedAccount<'a>(Option<&'a AccountInfo<'static>>);
+/// ## Design
+///
+/// The wrapper stores a borrowed reference to the actual account data, avoiding
+/// copies or allocations. This makes it suitable for use in constrained environments
+/// like the Solana BPF VM where heap allocation is expensive or unavailable.
+///
+/// ## Lifetime Management
+///
+/// The `'a` lifetime parameter ensures that the wrapped account reference remains
+/// valid for the duration of the transaction building process. This is typically
+/// the lifetime of the instruction execution context.
+///
+/// ## Usage
+///
+/// You typically don't create `ModifiedAccount` instances directly. Instead, they
+/// are created automatically by [`TransactionBuilder`] methods like
+/// [`TransactionBuilder::add_state_transition`] and
+/// [`TransactionBuilder::create_state_account`].
+///
+/// ## Memory Safety
+///
+/// The default value (created with `Default::default()`) contains `None` and will
+/// panic if accessed via `as_ref()`. This is by design since such instances should
+/// never be exposed outside of internal testing.
+struct ModifiedAccount<'a>(Option<&'a AccountInfo<'static>>);
 
 impl<'a> ModifiedAccount<'a> {
     #[inline]
@@ -91,60 +146,393 @@ impl<'a> AsRef<AccountInfo<'static>> for ModifiedAccount<'a> {
     }
 }
 
-/// Helper returned by [`TransactionBuilder::estimate_tx_size_with_additional_inputs_outputs`] to
-/// represent *potential* inputs that might be added later when doing
-/// what-if size estimations.
+/// Represents potential transaction inputs for size estimation.
+///
+/// This struct is used in "what-if" scenarios where you need to estimate the size
+/// of a transaction before actually adding inputs. It's particularly useful for
+/// fee calculation and UTXO consolidation planning.
+///
+/// ## Fields
+///
+/// - `count`: Number of inputs of this type to add
+/// - `item`: Template input to use for size calculation
+/// - `signer`: Optional public key that would sign these inputs
+///
+/// ## Examples
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::NewPotentialInputAmount;
+/// # use bitcoin::{TxIn, OutPoint, ScriptBuf, Sequence, Witness};
+/// # use arch_program::pubkey::Pubkey;
+/// // Estimate adding 3 similar inputs
+/// let potential_inputs = NewPotentialInputAmount {
+///     count: 3,
+///     item: TxIn {
+///         previous_output: OutPoint::null(),
+///         script_sig: ScriptBuf::new(),
+///         sequence: Sequence::MAX,
+///         witness: Witness::new(),
+///     },
+///     signer: Some(Pubkey::system_program()),
+/// };
+/// ```
 pub struct NewPotentialInputAmount {
     pub count: usize,
     pub item: TxIn,
     pub signer: Option<Pubkey>,
 }
 
-/// Helper for prospective outputs used in size / fee simulations.
+/// Represents potential transaction outputs for size estimation.
+///
+/// Used in conjunction with [`NewPotentialInputAmount`] to estimate transaction
+/// sizes before actually constructing the outputs. This is essential for accurate
+/// fee calculation and transaction planning.
+///
+/// ## Fields
+///
+/// - `count`: Number of outputs of this type to add
+/// - `item`: Template output to use for size calculation
+///
+/// ## Examples
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::NewPotentialOutputAmount;
+/// # use bitcoin::{TxOut, Amount, ScriptBuf};
+/// // Estimate adding 2 similar outputs
+/// let potential_outputs = NewPotentialOutputAmount {
+///     count: 2,
+///     item: TxOut {
+///         value: Amount::from_sat(50000),
+///         script_pubkey: ScriptBuf::new(),
+///     },
+/// };
+/// ```
 pub struct NewPotentialOutputAmount {
     pub count: usize,
     pub item: TxOut,
 }
 
-/// Aggregates the prospective inputs and outputs so they can be passed around as
-/// a single value.
+/// Container for potential inputs and outputs used in size estimation.
+///
+/// This struct aggregates potential inputs and outputs into a single parameter
+/// for methods like [`TransactionBuilder::estimate_tx_size_with_additional_inputs_outputs`].
+/// It enables comprehensive "what-if" analysis for transaction planning.
+///
+/// ## Usage Patterns
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::{NewPotentialInputsAndOutputs, NewPotentialInputAmount, NewPotentialOutputAmount};
+/// # use bitcoin::{TxIn, TxOut, OutPoint, ScriptBuf, Sequence, Witness, Amount};
+/// # use arch_program::pubkey::Pubkey;
+/// // Planning a transaction with multiple potential changes
+/// let potential_changes = NewPotentialInputsAndOutputs {
+///     inputs: Some(NewPotentialInputAmount {
+///         count: 2,
+///         item: TxIn {
+///             previous_output: OutPoint::null(),
+///             script_sig: ScriptBuf::new(),
+///             sequence: Sequence::MAX,
+///             witness: Witness::new(),
+///         },
+///         signer: Some(Pubkey::system_program()),
+///     }),
+///     outputs: vec![
+///         NewPotentialOutputAmount {
+///             count: 1,
+///             item: TxOut {
+///                 value: Amount::from_sat(50000),
+///                 script_pubkey: ScriptBuf::new(),
+///             },
+///         },
+///         NewPotentialOutputAmount {
+///             count: 1,
+///             item: TxOut {
+///                 value: Amount::from_sat(25000),
+///                 script_pubkey: ScriptBuf::new(),
+///             },
+///         },
+///     ],
+/// };
+/// ```
+///
+/// ## See Also
+///
+/// - [`TransactionBuilder::estimate_tx_size_with_additional_inputs_outputs`]
+/// - [`TransactionBuilder::estimate_tx_vsize_with_additional_inputs_outputs`]
 pub struct NewPotentialInputsAndOutputs {
     pub inputs: Option<NewPotentialInputAmount>,
     pub outputs: Vec<NewPotentialOutputAmount>,
 }
 
-pub trait InstructionUtxos<'a>: Sized {
-    fn try_utxos(utxos: &'a [UtxoInfo]) -> Result<Self, ProgramError>;
-}
-
-pub trait Accounts<'a>: Sized {
-    fn try_accounts(accounts: &'a [AccountInfo<'static>]) -> Result<Self, ProgramError>;
-}
-
 #[derive(Debug)]
-/// `TransactionBuilder` is a convenience wrapper around a [`bitcoin::Transaction`] that stores the **extra metadata** required by the Arch
-/// runtime when broadcasting state-transition transactions on **Arch**.
+/// A zero-heap Bitcoin transaction builder for the Arch runtime.
 ///
-/// # Generics
-/// * `MAX_MODIFIED_ACCOUNTS` – compile-time upper bound on how many program accounts may be modified.
-/// * `MAX_INPUTS_TO_SIGN` – compile-time upper bound on how many transaction inputs still need a signature.
+/// `TransactionBuilder` provides a type-safe, heap-free way to construct Bitcoin transactions
+/// that interact with the Arch runtime. It manages transaction inputs, outputs, state transitions,
+/// and fee calculations while maintaining compatibility with constrained environments like the
+/// Solana BPF VM.
 ///
-/// These bounds are enforced at compile-time with [`saturn_collections::generic::fixed_list::FixedList`] so the builder remains
-/// **heap-free** and suitable for constrained BPF environments.
+/// ## Design Philosophy
 ///
-/// See this crate's `README.md` for a step-by-step guide.  A minimal example:
+/// The builder is designed around three core principles:
+/// - **Zero-heap allocation**: All collections use fixed-size arrays determined at compile time
+/// - **Type safety**: Generic parameters prevent runtime errors by enforcing limits at compile time
+/// - **Arch integration**: Built-in support for Arch-specific concepts like state transitions and account modifications
+///
+/// ## Generic Parameters
+///
+/// - `MAX_MODIFIED_ACCOUNTS`: Maximum number of program accounts that can be modified in a single transaction
+/// - `MAX_INPUTS_TO_SIGN`: Maximum number of transaction inputs that require signatures
+/// - `RuneSet`: Collection type for tracking rune inputs (only used with `runes` feature)
+///
+/// These bounds are enforced at compile time to ensure the builder remains heap-free.
+///
+/// ## Feature Flags
+///
+/// - `runes`: Enables rune transaction support with automatic rune input/output tracking
+/// - `utxo-consolidation`: Enables UTXO consolidation features for managing fragmented UTXOs
+/// - `serde`: Enables serialization support for transaction data
+///
+/// ## Basic Usage
 ///
 /// ```rust
 /// use saturn_bitcoin_transactions::TransactionBuilder;
+/// use saturn_bitcoin_transactions::fee_rate::FeeRate;
 ///
-/// // Builder that can handle up to 8 modified accounts and 4 inputs to sign.
-/// let mut builder: TransactionBuilder<8, 4> = TransactionBuilder::new();
-/// # let _ = builder; // ignore unused in docs
+/// // Create a builder with capacity for 8 modified accounts and 4 inputs to sign
+/// let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+///
+/// // The builder starts with an empty version 2 transaction
+/// assert_eq!(builder.transaction.input.len(), 0);
+/// assert_eq!(builder.transaction.output.len(), 0);
+/// assert_eq!(builder.total_btc_input, 0);
+///
+/// // Add inputs and outputs using the builder methods...
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+///
+/// ## Working with State Transitions
+///
+/// State transitions are a core concept in Arch. Use these methods to manage program account updates:
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::TransactionBuilder;
+/// # use arch_program::account::AccountInfo;
+/// # use arch_program::pubkey::Pubkey;
+/// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+/// # let account: AccountInfo<'static> = unsafe { std::mem::zeroed() };
+/// # let program_id = Pubkey::system_program();
+/// // Add a state transition for an existing account
+/// builder.add_state_transition(&account)?;
+///
+/// // The builder automatically:
+/// // 1. Adds the account to modified_accounts list
+/// // 2. Creates an InputToSign entry
+/// // 3. Updates total_btc_input with DUST_LIMIT
+/// // 4. Adds the state transition to the transaction
+/// # Ok::<(), saturn_bitcoin_transactions::error::BitcoinTxError>(())
+/// ```
+///
+/// ## Adding User Inputs
+///
+/// Add user-controlled UTXOs to the transaction:
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::TransactionBuilder;
+/// # use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
+/// # use mempool_oracle_sdk::TxStatus;
+/// # use arch_program::pubkey::Pubkey;
+/// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+/// # let utxo: UtxoInfo<_> = unsafe { std::mem::zeroed() };
+/// # let status = TxStatus::Confirmed;
+/// # let signer = Pubkey::system_program();
+/// // Add a regular input that requires signing
+/// builder.add_tx_input(&utxo, &status, &signer)?;
+///
+/// // For precise control over input order:
+/// builder.insert_tx_input(0, &utxo, &status, &signer)?;
+/// # Ok::<(), saturn_bitcoin_transactions::error::BitcoinTxError>(())
+/// ```
+///
+/// ## Fee Management
+///
+/// The builder provides sophisticated fee management with mempool ancestry tracking:
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::TransactionBuilder;
+/// # use saturn_bitcoin_transactions::fee_rate::FeeRate;
+/// # use bitcoin::ScriptBuf;
+/// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+/// # let change_address = ScriptBuf::new();
+/// // Set target fee rate
+/// let fee_rate = FeeRate::try_from(25.0)?; // 25 sat/vB
+///
+/// // Automatically adjust transaction to meet fee requirements
+/// builder.adjust_transaction_to_pay_fees(&fee_rate, Some(change_address))?;
+///
+/// // Validate the effective fee rate (including ancestors)
+/// builder.is_fee_rate_valid(&fee_rate)?;
+///
+/// // Get fee breakdown
+/// let user_fee = builder.get_fee_paid_by_user(&fee_rate);
+/// let total_fee = builder.get_fee_paid()?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+///
+/// ## UTXO Selection
+///
+/// Automatically select UTXOs to meet funding requirements:
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::TransactionBuilder;
+/// # use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
+/// # use arch_program::pubkey::Pubkey;
+/// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+/// # let utxos: Vec<UtxoInfo<_>> = vec![];
+/// # let program_pubkey = Pubkey::system_program();
+/// // Find UTXOs to cover a specific amount
+/// let amount_needed = 100_000; // 100k sats
+/// let (selected_indices, total_found) = builder.find_btc_in_program_utxos(
+///     &utxos,
+///     &program_pubkey,
+///     amount_needed
+/// )?;
+///
+/// // The builder automatically selects the most efficient UTXOs
+/// // and adds them to the transaction
+/// # Ok::<(), saturn_bitcoin_transactions::error::BitcoinTxError>(())
+/// ```
+///
+/// ## Rune Support (with `runes` feature)
+///
+/// When compiled with the `runes` feature, the builder automatically tracks rune inputs and outputs:
+///
+/// ```rust
+/// # #[cfg(feature = "runes")]
+/// # {
+/// # use saturn_bitcoin_transactions::TransactionBuilder;
+/// # use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
+/// # use arch_program::rune::RuneAmount;
+/// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+/// # let rune_utxo: UtxoInfo<_> = unsafe { std::mem::zeroed() };
+/// // Rune inputs are automatically tracked when adding UTXOs
+/// // The builder maintains total_rune_inputs and runestone data
+///
+/// // Access rune information
+/// let rune_count = builder.total_rune_inputs.len();
+/// let runestone = &builder.runestone;
+/// # }
+/// ```
+///
+/// ## UTXO Consolidation (with `utxo-consolidation` feature)
+///
+/// Automatically consolidate fragmented UTXOs to reduce transaction sizes:
+///
+/// ```rust
+/// # #[cfg(feature = "utxo-consolidation")]
+/// # {
+/// # use saturn_bitcoin_transactions::TransactionBuilder;
+/// # use saturn_bitcoin_transactions::fee_rate::FeeRate;
+/// # use saturn_bitcoin_transactions::NewPotentialInputsAndOutputs;
+/// # use arch_program::pubkey::Pubkey;
+/// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+/// # let pool_pubkey = Pubkey::system_program();
+/// # let fee_rate = FeeRate::try_from(10.0).unwrap();
+/// # let utxos: Vec<_> = vec![];
+/// # let potential_changes = NewPotentialInputsAndOutputs { inputs: None, outputs: vec![] };
+/// // Add consolidation UTXOs to reduce fragmentation
+/// builder.add_consolidation_utxos(
+///     &pool_pubkey,
+///     &fee_rate,
+///     &utxos,
+///     &potential_changes
+/// );
+///
+/// // Get fee breakdown
+/// let program_fee = builder.get_fee_paid_by_program(&fee_rate);
+/// let user_fee = builder.get_fee_paid_by_user(&fee_rate);
+/// # }
+/// ```
+///
+/// ## Size Estimation
+///
+/// Estimate transaction sizes for fee calculation:
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::TransactionBuilder;
+/// # use saturn_bitcoin_transactions::NewPotentialInputsAndOutputs;
+/// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+/// # let potential_changes = NewPotentialInputsAndOutputs { inputs: None, outputs: vec![] };
+/// // Estimate current transaction size
+/// let current_vsize = builder.estimate_final_tx_vsize();
+///
+/// // Estimate size with additional inputs/outputs
+/// let estimated_vsize = builder.estimate_tx_vsize_with_additional_inputs_outputs(
+///     &potential_changes
+/// );
+/// ```
+///
+/// ## Error Handling
+///
+/// The builder provides detailed error information:
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::TransactionBuilder;
+/// # use saturn_bitcoin_transactions::error::BitcoinTxError;
+/// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+/// // Capacity limits are enforced at runtime
+/// match builder.inputs_to_sign.len() {
+///     len if len >= 4 => {
+///         // Handle InputToSignListFull error
+///     }
+///     _ => {
+///         // Safe to add more inputs
+///     }
+/// }
+///
+/// // Fee validation errors
+/// match builder.get_fee_paid() {
+///     Ok(fee) => println!("Fee: {} sats", fee),
+///     Err(BitcoinTxError::InsufficientInputAmount) => {
+///         // Handle insufficient input funds
+///     }
+///     Err(e) => {
+///         // Handle other errors
+///     }
+/// }
+/// ```
+///
+/// ## Finalization
+///
+/// Complete the transaction and prepare it for signing:
+///
+/// ```rust
+/// # use saturn_bitcoin_transactions::TransactionBuilder;
+/// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+/// // After adding all inputs, outputs, and adjusting fees
+/// builder.finalize()?;
+///
+/// // The transaction is now ready for the Arch runtime to collect signatures
+/// // and broadcast to the Bitcoin network
+/// # Ok::<(), arch_program::program_error::ProgramError>(())
+/// ```
+///
+/// ## Performance Considerations
+///
+/// - All operations are O(1) or O(n) where n is bounded by the generic parameters
+/// - No heap allocations occur during normal operation
+/// - Memory usage is deterministic and known at compile time
+/// - Suitable for use in constrained environments like the Solana BPF VM
+///
+/// ## Thread Safety
+///
+/// `TransactionBuilder` is not thread-safe and should not be shared between threads.
+/// Create separate builders for concurrent transaction construction.
 pub struct TransactionBuilder<
     'a,
     const MAX_MODIFIED_ACCOUNTS: usize,
     const MAX_INPUTS_TO_SIGN: usize,
+    RuneSet: FixedCapacitySet<Item = RuneAmount> + Default,
 > {
     /// This transaction will be broadcast through Arch to indicate a state
     /// transition in the program
@@ -153,7 +541,7 @@ pub struct TransactionBuilder<
 
     /// This tells Arch which accounts have been modified, and thus required
     /// their data to be saved
-    pub modified_accounts: FixedList<ModifiedAccount<'a>, MAX_MODIFIED_ACCOUNTS>,
+    modified_accounts: FixedList<ModifiedAccount<'a>, MAX_MODIFIED_ACCOUNTS>,
 
     /// This tells Arch which inputs in [InstructionContext::transaction] still
     /// need to be signed, along with which key needs to sign each of them
@@ -161,8 +549,14 @@ pub struct TransactionBuilder<
 
     pub total_btc_input: u64,
 
+    #[cfg(not(feature = "runes"))]
+    _phantom: std::marker::PhantomData<RuneSet>,
+
     #[cfg(feature = "runes")]
-    pub total_rune_input: u128,
+    pub total_rune_inputs: RuneSet,
+
+    #[cfg(feature = "runes")]
+    pub runestone: Runestone,
 
     #[cfg(feature = "utxo-consolidation")]
     pub total_btc_consolidation_input: u64,
@@ -171,22 +565,61 @@ pub struct TransactionBuilder<
     pub extra_tx_size_for_consolidation: usize,
 }
 
-impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
-    TransactionBuilder<'a, MAX_MODIFIED_ACCOUNTS, MAX_INPUTS_TO_SIGN>
+impl<
+        'a,
+        const MAX_MODIFIED_ACCOUNTS: usize,
+        const MAX_INPUTS_TO_SIGN: usize,
+        RuneSet: FixedCapacitySet<Item = RuneAmount> + Default,
+    > TransactionBuilder<'a, MAX_MODIFIED_ACCOUNTS, MAX_INPUTS_TO_SIGN, RuneSet>
 {
-    /// Constructs a blank builder containing an empty **version 2** transaction with `lock_time = 0`.
+    /// Creates a new empty transaction builder.
     ///
-    /// All counters (`total_btc_input`, `total_rune_input`, etc.) start at **0**. You are expected to populate the
-    /// transaction inputs/outputs through the various `add_*` / `insert_*` helpers and then call
-    /// [`TransactionBuilder::adjust_transaction_to_pay_fees`] before finalising.
+    /// Initializes a blank builder containing an empty **version 2** Bitcoin transaction with `lock_time = 0`.
+    /// All internal counters and collections start empty, ready for you to populate through the various
+    /// `add_*` and `insert_*` methods.
     ///
-    /// # Examples
+    /// ## Initial State
+    ///
+    /// - `transaction`: Empty version 2 transaction
+    /// - `total_btc_input`: 0 satoshis
+    /// - `modified_accounts`: Empty fixed-size list
+    /// - `inputs_to_sign`: Empty fixed-size list
+    /// - `tx_statuses`: Default mempool info
+    ///
+    /// ## Typical Workflow
+    ///
+    /// 1. Create builder with `new()`
+    /// 2. Add inputs with `add_tx_input()` or `add_state_transition()`
+    /// 3. Add outputs directly to `builder.transaction.output`
+    /// 4. Adjust fees with `adjust_transaction_to_pay_fees()`
+    /// 5. Finalize with `finalize()`
+    ///
+    /// ## Examples
+    ///
     /// ```rust
-    /// # use saturn_bitcoin_transactions::TransactionBuilder;
-    /// let builder = TransactionBuilder::<0, 0>::new();
-    /// assert!(builder.transaction.input.is_empty());
-    /// assert!(builder.transaction.output.is_empty());
+    /// use saturn_bitcoin_transactions::TransactionBuilder;
+    /// use bitcoin::Transaction;
+    ///
+    /// // Create a builder that can handle up to 8 modified accounts and 4 inputs to sign
+    /// let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+    ///
+    /// // Verify initial state
+    /// assert_eq!(builder.transaction.input.len(), 0);
+    /// assert_eq!(builder.transaction.output.len(), 0);
+    /// assert_eq!(builder.total_btc_input, 0);
+    /// assert_eq!(builder.modified_accounts.len(), 0);
+    /// assert_eq!(builder.inputs_to_sign.len(), 0);
     /// ```
+    ///
+    /// ## Generic Parameters
+    ///
+    /// Choose your bounds based on your use case:
+    /// - **Small transactions**: `TransactionBuilder<4, 2>` for simple operations
+    /// - **Medium transactions**: `TransactionBuilder<8, 4>` for typical use cases
+    /// - **Large transactions**: `TransactionBuilder<16, 8>` for complex operations
+    ///
+    /// Remember that larger bounds use more stack space but provide more flexibility.
+    #[cfg(not(feature = "runes"))]
     pub fn new() -> Self {
         let transaction = Transaction {
             version: Version::TWO,
@@ -202,9 +635,6 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
             inputs_to_sign: FixedList::new(),
             total_btc_input: 0,
 
-            #[cfg(feature = "runes")]
-            total_rune_input: 0,
-
             #[cfg(feature = "utxo-consolidation")]
             total_btc_consolidation_input: 0,
             #[cfg(feature = "utxo-consolidation")]
@@ -212,82 +642,181 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
         }
     }
 
-    /// Swaps in a pre-built [`bitcoin::Transaction`] and lets the builder deduce totals and mempool ancestry data.
-    ///
-    /// This is useful when you already have a partially-signed template transaction and want to hand it over to Arch
-    /// for final signature collection.
-    ///
-    /// *The length of `transaction.input` **must match** `user_utxos.len()`; otherwise [`BitcoinTxError::UtxoNotFound`]
-    /// is returned.*
-    ///
-    /// # Errors
-    /// * [`BitcoinTxError::UtxoNotFound`] – an input could not be matched with a provided UTXO.
-    /// * Propagates Arch syscall failures (`get_amount_in_tx_inputs`) in non-test builds.
-    pub fn replace_transaction<const MAX_UTXOS: usize, const MAX_ACCOUNTS: usize>(
-        &mut self,
+    #[cfg(not(feature = "runes"))]
+    pub fn new_with_transaction<const MAX_UTXOS: usize, const MAX_ACCOUNTS: usize>(
         transaction: Transaction,
         mempool_data: &MempoolData<MAX_UTXOS, MAX_ACCOUNTS>,
         user_utxos: &[UtxoInfo],
-    ) -> Result<(), BitcoinTxError> {
-        self.transaction = transaction;
+    ) -> Result<Self, BitcoinTxError> {
+        assert_eq!(transaction.input.len(), user_utxos.len(), "TransactionBuilder::replace_transaction: Transaction input length must match user UTXOs length");
 
-        assert_eq!(self.transaction.input.len(), user_utxos.len(), "TransactionBuilder::replace_transaction: Transaction input length must match user UTXOs length");
-
-        for input in &self.transaction.input {
+        for input in &transaction.input {
             let previous_output = &input.previous_output;
             let utxo_meta = UtxoMeta::from_outpoint(previous_output.txid, previous_output.vout);
             let utxo = user_utxos.iter().find(|utxo| utxo.meta == utxo_meta);
-            if let Some(utxo) = utxo {
-                #[cfg(feature = "runes")]
-                {
-                    self.total_rune_input += utxo.runes.get().map(|rune| rune.amount).unwrap_or(0);
-                }
-            } else {
+            if utxo.is_none() {
                 return Err(BitcoinTxError::UtxoNotFound(*previous_output));
             }
         }
 
-        self.tx_statuses = generate_mempool_info(user_utxos, mempool_data);
+        let tx_statuses = generate_mempool_info(user_utxos, mempool_data);
+        let total_btc_input = user_utxos.iter().map(|u| u.value).sum::<u64>();
 
-        #[cfg(feature = "utxo-consolidation")]
-        {
-            self.extra_tx_size_for_consolidation = 0;
-            self.total_btc_consolidation_input = 0;
+        Ok(Self {
+            transaction,
+            tx_statuses,
+            modified_accounts: FixedList::new(),
+            inputs_to_sign: FixedList::new(),
+            total_btc_input,
+
+            #[cfg(feature = "utxo-consolidation")]
+            total_btc_consolidation_input: 0,
+            #[cfg(feature = "utxo-consolidation")]
+            extra_tx_size_for_consolidation: 0,
+        })
+    }
+
+    /// Creates a new empty transaction builder with rune support.
+    ///
+    /// Initializes a blank builder containing an empty **version 2** Bitcoin transaction with `lock_time = 0`.
+    /// All internal counters and collections start empty, including rune-specific tracking.
+    ///
+    /// ## Initial State
+    ///
+    /// - `transaction`: Empty version 2 transaction
+    /// - `total_btc_input`: 0 satoshis
+    /// - `total_rune_inputs`: Empty rune set
+    /// - `runestone`: Default runestone
+    /// - `modified_accounts`: Empty fixed-size list
+    /// - `inputs_to_sign`: Empty fixed-size list
+    /// - `tx_statuses`: Default mempool info
+    ///
+    /// ## Rune Features
+    ///
+    /// With the `runes` feature enabled, the builder automatically:
+    /// - Tracks rune inputs when adding UTXOs
+    /// - Maintains runestone data for rune operations
+    /// - Handles rune arithmetic and validation
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "runes")]
+    /// # {
+    /// use saturn_bitcoin_transactions::TransactionBuilder;
+    /// use arch_program::rune::RuneAmount;
+    ///
+    /// // Create a builder that can handle up to 8 modified accounts and 4 inputs to sign
+    /// let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+    ///
+    /// // Verify initial state
+    /// assert_eq!(builder.transaction.input.len(), 0);
+    /// assert_eq!(builder.transaction.output.len(), 0);
+    /// assert_eq!(builder.total_btc_input, 0);
+    /// assert_eq!(builder.total_rune_inputs.len(), 0);
+    /// assert_eq!(builder.inputs_to_sign.len(), 0);
+    /// # }
+    /// ```
+    ///
+    /// ## Generic Parameters
+    ///
+    /// Choose your bounds based on your use case:
+    /// - **Small transactions**: `TransactionBuilder<4, 2, SmallRuneSet>` for simple operations
+    /// - **Medium transactions**: `TransactionBuilder<8, 4, MediumRuneSet>` for typical use cases
+    /// - **Large transactions**: `TransactionBuilder<16, 8, LargeRuneSet>` for complex operations
+    ///
+    /// The `RuneSet` parameter determines how many different rune types can be tracked simultaneously.
+    #[cfg(feature = "runes")]
+    pub fn new() -> Self {
+        let transaction = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![],
+            output: vec![],
+        };
+
+        Self {
+            transaction,
+            tx_statuses: MempoolInfo::default(),
+            modified_accounts: FixedList::new(),
+            inputs_to_sign: FixedList::new(),
+            total_btc_input: 0,
+
+            total_rune_inputs: RuneSet::default(),
+            runestone: Runestone::default(),
+
+            #[cfg(feature = "utxo-consolidation")]
+            total_btc_consolidation_input: 0,
+            extra_tx_size_for_consolidation: 0,
+        }
+    }
+
+    #[cfg(feature = "runes")]
+    pub fn new_with_transaction<const MAX_UTXOS: usize, const MAX_ACCOUNTS: usize>(
+        transaction: Transaction,
+        mempool_data: &MempoolData<MAX_UTXOS, MAX_ACCOUNTS>,
+        user_utxos: &[UtxoInfo<RuneSet>],
+    ) -> Result<Self, BitcoinTxError> {
+        if transaction.input.len() != user_utxos.len() {
+            return Err(BitcoinTxError::TransactionInputLengthMustMatchUserUtxosLength);
         }
 
-        // Determine total BTC input amount. When running unit tests, the Arch
-        // syscall `get_amount_in_tx_inputs` is not available, so calling it
-        // would cause the test binary to abort.  Under `cfg(test)` we therefore
-        // fall back to simply summing the values of the user-supplied UTXOs.
-        // In normal (non-test) builds we still call the syscall so that the
-        // value is verified against the actual Bitcoin transaction outputs.
-        #[cfg(test)]
-        {
-            self.total_btc_input = user_utxos.iter().map(|u| u.value).sum();
+        let mut total_rune_inputs = RuneSet::default();
+        for input in &transaction.input {
+            let previous_output = &input.previous_output;
+            let utxo_meta = UtxoMeta::from_outpoint(previous_output.txid, previous_output.vout);
+            let utxo = user_utxos.iter().find(|utxo| utxo.meta == utxo_meta);
+            if let Some(utxo) = utxo {
+                for rune in utxo.runes.as_slice() {
+                    add_rune_input(&mut total_rune_inputs, *rune)?;
+                }
+            } else {
+                return Err(BitcoinTxError::UtxoNotFoundInUserUtxos);
+            }
         }
 
-        #[cfg(not(test))]
-        {
-            self.total_btc_input = get_amount_in_tx_inputs(&self.transaction)?;
-        }
+        let tx_statuses = generate_mempool_info(user_utxos, mempool_data);
+        let total_btc_input = user_utxos.iter().map(|u| u.value).sum::<u64>();
 
-        Ok(())
+        let runestone = match Runestone::decipher(&transaction) {
+            Some(artifact) => match artifact {
+                Artifact::Runestone(runestone) => Ok(runestone),
+                _ => Err(BitcoinTxError::RunestoneDecipherError),
+            },
+            None => Ok(Runestone::default()),
+        }?;
+
+        Ok(Self {
+            transaction,
+            tx_statuses,
+            modified_accounts: FixedList::new(),
+            inputs_to_sign: FixedList::new(),
+            total_btc_input,
+
+            total_rune_inputs,
+            runestone,
+
+            #[cfg(feature = "utxo-consolidation")]
+            total_btc_consolidation_input: 0,
+            extra_tx_size_for_consolidation: 0,
+        })
     }
 
     pub fn create_state_account(
         &mut self,
-        utxo: &UtxoInfo,
+        utxo: &UtxoInfo<RuneSet>,
         system_program: &AccountInfo<'static>,
         fee_payer: &AccountInfo<'static>,
         account: &'a AccountInfo<'static>,
         program_id: &Pubkey,
-        space: u64,
         seeds: &[&[u8]],
     ) -> Result<(), ProgramError> {
-        self.inputs_to_sign.push(InputToSign {
-            index: self.transaction.input.len() as u32,
-            signer: account.key.clone(),
-        });
+        self.inputs_to_sign
+            .push(InputToSign {
+                index: self.transaction.input.len() as u32,
+                signer: account.key.clone(),
+            })
+            .map_err(|_| BitcoinTxError::InputToSignListFull)?;
 
         create_account(
             &utxo.meta,
@@ -295,48 +824,102 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
             system_program,
             fee_payer,
             program_id,
-            space,
             seeds,
         )?;
 
         add_state_transition(&mut self.transaction, account);
 
-        self.modified_accounts.push(ModifiedAccount::new(account));
+        self.modified_accounts
+            .push(ModifiedAccount::new(account))
+            .map_err(|_| BitcoinTxError::ModifiedAccountListFull)?;
 
         self.total_btc_input += utxo.value;
 
         #[cfg(feature = "runes")]
         {
-            if let Some(rune_data) = utxo.runes.get() {
-                self.total_rune_input += rune_data.amount;
+            for rune in utxo.runes.as_slice() {
+                self.add_rune_input(*rune)?;
             }
         }
 
         Ok(())
     }
 
-    /// Adds a **state-transition** for the given account and marks it as modified.
+    /// Adds a state transition for an existing program account.
     ///
-    /// Internally this performs four steps:
-    /// 1. Pushes an [`InputToSign`] so Arch knows which key must sign the newly inserted input.
-    /// 2. Appends the meta-instruction via [`arch_program::helper::add_state_transition`].
-    /// 3. Tracks the account in [`TransactionBuilder::modified_accounts`].
-    /// 4. Increments [`TransactionBuilder::total_btc_input`] by [`constants::DUST_LIMIT`] (every
-    ///    account UTXO holds exactly one dust-value output on chain).
+    /// This method handles the complete process of adding a state transition to the transaction,
+    /// which is required when updating any program-derived account (PDA) or state account on Arch.
     ///
-    /// Call this when you are **updating** an existing PDA/state account.
-    pub fn add_state_transition(&mut self, account: &'a AccountInfo<'static>) {
-        self.inputs_to_sign.push(InputToSign {
-            index: self.transaction.input.len() as u32,
-            signer: account.key.clone(),
-        });
+    /// ## What it does
+    ///
+    /// The method performs these operations atomically:
+    /// 1. **Adds signing requirement**: Creates an [`InputToSign`] entry so Arch knows which key must sign the input
+    /// 2. **Adds meta-instruction**: Appends the state transition meta-instruction to the transaction
+    /// 3. **Tracks modification**: Adds the account to the `modified_accounts` list for Arch's state saving
+    /// 4. **Updates input total**: Increments `total_btc_input` by [`constants::DUST_LIMIT`] (546 sats)
+    ///
+    /// ## When to use
+    ///
+    /// Use this method when you need to:
+    /// - Update an existing program account
+    /// - Modify state stored in a PDA
+    /// - Perform any operation that changes account data
+    ///
+    /// ## Account Requirements
+    ///
+    /// The account must:
+    /// - Have a valid UTXO backing it on-chain
+    /// - Be owned by a program that you have authority to modify
+    /// - Have exactly [`constants::DUST_LIMIT`] satoshis in its UTXO
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use saturn_bitcoin_transactions::TransactionBuilder;
+    /// # use arch_program::account::AccountInfo;
+    /// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+    /// # let account: AccountInfo<'static> = unsafe { std::mem::zeroed() };
+    /// // Add a state transition for an existing liquidity pool account
+    /// builder.add_state_transition(&account)?;
+    ///
+    /// // The builder now knows:
+    /// // - This account will be modified
+    /// // - The account's key must sign the transaction
+    /// // - 546 sats are consumed from the account's UTXO
+    /// # Ok::<(), saturn_bitcoin_transactions::error::BitcoinTxError>(())
+    /// ```
+    ///
+    /// ## Error Handling
+    ///
+    /// Returns [`BitcoinTxError::InputToSignListFull`] if the builder has reached its
+    /// `MAX_INPUTS_TO_SIGN` limit, or [`BitcoinTxError::ModifiedAccountListFull`] if
+    /// the `MAX_MODIFIED_ACCOUNTS` limit is exceeded.
+    ///
+    /// ## See Also
+    ///
+    /// - [`Self::create_state_account`] for creating new accounts
+    /// - [`Self::insert_state_transition_input`] for position-specific insertions
+    pub fn add_state_transition(
+        &mut self,
+        account: &'a AccountInfo<'static>,
+    ) -> Result<(), BitcoinTxError> {
+        self.inputs_to_sign
+            .push(InputToSign {
+                index: self.transaction.input.len() as u32,
+                signer: account.key.clone(),
+            })
+            .map_err(|_| BitcoinTxError::InputToSignListFull)?;
 
         add_state_transition(&mut self.transaction, account);
 
-        self.modified_accounts.push(ModifiedAccount::new(account));
+        self.modified_accounts
+            .push(ModifiedAccount::new(account))
+            .map_err(|_| BitcoinTxError::ModifiedAccountListFull)?;
 
         // UTXO accounts always have dust limit amount.
         self.total_btc_input += DUST_LIMIT;
+
+        Ok(())
     }
 
     /// Inserts an **existing state‐transition input** at the given `tx_index` keeping all
@@ -350,7 +933,7 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
         &mut self,
         tx_index: usize,
         account: &'a AccountInfo<'static>,
-    ) {
+    ) -> Result<(), BitcoinTxError> {
         let utxo_outpoint = OutPoint {
             txid: Txid::from_str(&hex::encode(account.utxo.txid())).unwrap(),
             vout: account.utxo.vout(),
@@ -374,15 +957,21 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
             }
         }
 
-        self.inputs_to_sign.push(InputToSign {
-            index: tx_index_u32,
-            signer: account.key.clone(),
-        });
+        self.inputs_to_sign
+            .push(InputToSign {
+                index: tx_index_u32,
+                signer: account.key.clone(),
+            })
+            .map_err(|_| BitcoinTxError::InputToSignListFull)?;
 
-        self.modified_accounts.push(ModifiedAccount::new(account));
+        self.modified_accounts
+            .push(ModifiedAccount::new(account))
+            .map_err(|_| BitcoinTxError::ModifiedAccountListFull)?;
 
         // UTXO accounts always have dust limit amount.
         self.total_btc_input += DUST_LIMIT;
+
+        Ok(())
     }
 
     /// Adds a regular input owned by `signer`.
@@ -391,11 +980,18 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
     /// * Records mempool ancestry via [`TransactionBuilder::add_tx_status`].
     /// * Adds an [`InputToSign`].
     /// * Updates `total_btc_input` (and `total_rune_input` when compiled with the `runes` feature).
-    pub fn add_tx_input(&mut self, utxo: &UtxoInfo, status: &TxStatus, signer: &Pubkey) {
-        self.inputs_to_sign.push(InputToSign {
-            index: self.transaction.input.len() as u32,
-            signer: *signer,
-        });
+    pub fn add_tx_input(
+        &mut self,
+        utxo: &UtxoInfo<RuneSet>,
+        status: &TxStatus,
+        signer: &Pubkey,
+    ) -> Result<(), BitcoinTxError> {
+        self.inputs_to_sign
+            .push(InputToSign {
+                index: self.transaction.input.len() as u32,
+                signer: *signer,
+            })
+            .map_err(|_| BitcoinTxError::InputToSignListFull)?;
 
         let outpoint = utxo.meta.to_outpoint();
 
@@ -412,13 +1008,22 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
 
         #[cfg(feature = "runes")]
         {
-            self.total_rune_input += utxo.runes.get().map(|rune| rune.amount).unwrap_or(0);
+            for rune in utxo.runes.as_slice() {
+                self.add_rune_input(*rune)?;
+            }
         }
+
+        Ok(())
     }
 
     /// Appends a **user-supplied** [`TxIn`] (already built elsewhere) while still tracking the
     /// UTXO ancestry for fee-rate purposes.
-    pub fn add_user_tx_input(&mut self, utxo: &UtxoInfo, status: &TxStatus, tx_in: &TxIn) {
+    pub fn add_user_tx_input(
+        &mut self,
+        utxo: &UtxoInfo<RuneSet>,
+        status: &TxStatus,
+        tx_in: &TxIn,
+    ) -> Result<(), BitcoinTxError> {
         self.add_tx_status(utxo, status);
 
         self.transaction.input.push(tx_in.clone());
@@ -427,8 +1032,12 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
 
         #[cfg(feature = "runes")]
         {
-            self.total_rune_input += utxo.runes.get().map(|rune| rune.amount).unwrap_or(0);
+            for rune in utxo.runes.as_slice() {
+                self.add_rune_input(*rune)?;
+            }
         }
+
+        Ok(())
     }
 
     /// Inserts a **regular** (non-state–account) [`TxIn`] at the given position `tx_index`.
@@ -456,10 +1065,10 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
     pub fn insert_tx_input(
         &mut self,
         tx_index: usize,
-        utxo: &UtxoInfo,
+        utxo: &UtxoInfo<RuneSet>,
         status: &TxStatus,
         signer: &Pubkey,
-    ) {
+    ) -> Result<(), BitcoinTxError> {
         let outpoint = utxo.meta.to_outpoint();
 
         self.add_tx_status(utxo, status);
@@ -482,17 +1091,23 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
             }
         }
 
-        self.inputs_to_sign.push(InputToSign {
-            index: tx_index_u32,
-            signer: *signer,
-        });
+        self.inputs_to_sign
+            .push(InputToSign {
+                index: tx_index_u32,
+                signer: *signer,
+            })
+            .map_err(|_| BitcoinTxError::InputToSignListFull)?;
 
         self.total_btc_input += utxo.value;
 
         #[cfg(feature = "runes")]
         {
-            self.total_rune_input += utxo.runes.get().map(|rune| rune.amount).unwrap_or(0);
+            for rune in utxo.runes.as_slice() {
+                self.add_rune_input(*rune)?;
+            }
         }
+
+        Ok(())
     }
 
     /// Inserts a **pre-constructed** [`TxIn`] – built elsewhere – at the specified `tx_index`.
@@ -517,10 +1132,10 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
     pub fn insert_user_tx_input(
         &mut self,
         tx_index: usize,
-        utxo: &UtxoInfo,
+        utxo: &UtxoInfo<RuneSet>,
         status: &TxStatus,
         tx_in: &TxIn,
-    ) {
+    ) -> Result<(), BitcoinTxError> {
         self.add_tx_status(utxo, status);
 
         self.transaction.input.insert(tx_index, tx_in.clone());
@@ -537,8 +1152,12 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
 
         #[cfg(feature = "runes")]
         {
-            self.total_rune_input += utxo.runes.get().map(|rune| rune.amount).unwrap_or(0);
+            for rune in utxo.runes.as_slice() {
+                self.add_rune_input(*rune)?;
+            }
         }
+
+        Ok(())
     }
 
     /// Greedily selects UTXOs until at least `amount` satoshis are gathered.
@@ -553,12 +1172,15 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
     ///
     /// # Errors
     /// * [`BitcoinTxError::NotEnoughBtcInPool`] – not enough value in `utxos` to satisfy `amount`.
-    pub fn find_btc_in_utxos<T: AsRef<UtxoInfo>>(
+    pub fn find_btc_in_program_utxos<T>(
         &mut self,
         utxos: &[T],
         program_info_pubkey: &Pubkey,
         amount: u64,
-    ) -> Result<(Vec<usize>, u64), BitcoinTxError> {
+    ) -> Result<(Vec<usize>, u64), BitcoinTxError>
+    where
+        T: AsRef<UtxoInfo<RuneSet>>,
+    {
         let mut btc_amount = 0;
 
         // Create indices instead of cloning the entire vector
@@ -597,7 +1219,7 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
             btc_amount += utxo.as_ref().value;
 
             // All program outputs are confirmed by default.
-            self.add_tx_input(utxo.as_ref(), &TxStatus::Confirmed, program_info_pubkey);
+            self.add_tx_input(utxo.as_ref(), &TxStatus::Confirmed, program_info_pubkey)?;
         }
 
         if btc_amount < amount {
@@ -608,18 +1230,86 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
         Ok((utxo_indices, btc_amount))
     }
 
-    /// Harmonises the transaction outputs so the final unsigned transaction meets or exceeds
-    /// the desired `fee_rate`.
+    /// Automatically adjusts the transaction to meet the target fee rate.
     ///
-    /// If the inputs exceed the required amount, the function will:
-    /// * Create a *change* output (when `address_to_send_remaining_btc` is `Some`).
-    /// * Or increase an existing change output when one already exists.
+    /// This method optimizes the transaction's fee structure by analyzing the current input/output
+    /// balance and adjusting outputs to achieve the desired fee rate. It handles both overpayment
+    /// (creating change) and underpayment (reducing outputs) scenarios.
     ///
-    /// Conversely, if the current fees are *insufficient* it will reduce the value of the change
-    /// output or return an error when impossible.
+    /// ## How it works
     ///
-    /// The heavy lifting is delegated to [`calc_fee::adjust_transaction_to_pay_fees`]; this
-    /// wrapper simply passes the builder-specific metadata.
+    /// The method evaluates the current transaction and:
+    /// 1. **Calculates required fee**: Based on transaction size and target fee rate
+    /// 2. **Handles excess funds**: Creates or increases change output if inputs exceed requirements
+    /// 3. **Handles insufficient funds**: Reduces change output or returns error if impossible
+    /// 4. **Considers ancestors**: Accounts for mempool ancestry when calculating effective fee rate
+    ///
+    /// ## Change Output Behavior
+    ///
+    /// - **`address_to_send_remaining_btc = Some(address)`**: Creates new change output or increases existing one
+    /// - **`address_to_send_remaining_btc = None`**: Only adjusts existing outputs, never creates new ones
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use saturn_bitcoin_transactions::TransactionBuilder;
+    /// # use saturn_bitcoin_transactions::fee_rate::FeeRate;
+    /// # use bitcoin::ScriptBuf;
+    /// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+    /// // Set target fee rate (25 sat/vB)
+    /// let fee_rate = FeeRate::try_from(25.0)?;
+    ///
+    /// // Create change output for excess funds
+    /// let change_address = ScriptBuf::new(); // Your change address
+    /// builder.adjust_transaction_to_pay_fees(&fee_rate, Some(change_address))?;
+    ///
+    /// // Or adjust without creating change (only reduce existing outputs)
+    /// builder.adjust_transaction_to_pay_fees(&fee_rate, None)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// ## Fee Calculation Details
+    ///
+    /// The method considers:
+    /// - **Transaction size**: Estimated final size including witness data
+    /// - **Input signatures**: Size overhead for each required signature
+    /// - **Mempool ancestry**: Fees and sizes of unconfirmed parent transactions
+    /// - **Consolidation**: Extra size from UTXO consolidation (if enabled)
+    ///
+    /// ## Error Handling
+    ///
+    /// Returns an error if:
+    /// - Insufficient funds to cover minimum fee requirements
+    /// - Cannot reduce outputs enough to meet fee rate
+    /// - Transaction would exceed size limits
+    /// - Fee rate calculation fails
+    ///
+    /// ## Best Practices
+    ///
+    /// ```rust
+    /// # use saturn_bitcoin_transactions::TransactionBuilder;
+    /// # use saturn_bitcoin_transactions::fee_rate::FeeRate;
+    /// # use bitcoin::ScriptBuf;
+    /// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+    /// # let change_address = ScriptBuf::new();
+    /// // Always validate fee rate after adjustment
+    /// let fee_rate = FeeRate::try_from(15.0)?;
+    /// builder.adjust_transaction_to_pay_fees(&fee_rate, Some(change_address))?;
+    ///
+    /// // Verify the final fee rate meets requirements
+    /// builder.is_fee_rate_valid(&fee_rate)?;
+    ///
+    /// // Check final fee amount
+    /// let final_fee = builder.get_fee_paid()?;
+    /// println!("Final fee: {} sats", final_fee);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// ## See Also
+    ///
+    /// - [`Self::is_fee_rate_valid`] for validating the resulting fee rate
+    /// - [`Self::get_fee_paid`] for checking the final fee amount
+    /// - [`Self::get_fee_paid_by_user`] for user-specific fee calculation
     pub fn adjust_transaction_to_pay_fees(
         &mut self,
         fee_rate: &FeeRate,
@@ -660,7 +1350,7 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
     /// * `new_potential_inputs_and_outputs` – hypothetical inputs/outputs the caller *may* add
     ///    later; needed to keep size estimations accurate.
     #[cfg(feature = "utxo-consolidation")]
-    pub fn add_consolidation_utxos<T: AsRef<UtxoInfo>>(
+    pub fn add_consolidation_utxos<T: AsRef<UtxoInfo<RuneSet>>>(
         &mut self,
         pool_pubkey: &Pubkey,
         fee_rate: &FeeRate,
@@ -684,10 +1374,26 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
         self.total_btc_consolidation_input = total_consolidation_input_amount;
     }
 
-    // Why is this function only taking into account consolidation?
     #[cfg(feature = "utxo-consolidation")]
     pub fn get_fee_paid_by_program(&self, fee_rate: &FeeRate) -> u64 {
         fee_rate.fee(self.extra_tx_size_for_consolidation).to_sat()
+    }
+
+    pub fn get_fee_paid_by_user(&mut self, fee_rate: &FeeRate) -> u64 {
+        let tx_size = self.estimate_final_tx_vsize();
+
+        let tx_size_to_be_paid_by_user = {
+            #[cfg(feature = "utxo-consolidation")]
+            {
+                tx_size - self.extra_tx_size_for_consolidation
+            }
+            #[cfg(not(feature = "utxo-consolidation"))]
+            {
+                tx_size
+            }
+        };
+
+        fee_rate.fee(tx_size_to_be_paid_by_user).to_sat()
     }
 
     pub fn estimate_final_tx_vsize(&mut self) -> usize {
@@ -787,12 +1493,83 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
         Ok(())
     }
 
-    /// Consumes the builder, handing the finalised transaction plus metadata to Arch so it can
-    /// collect the required signatures.
+    /// Finalizes the transaction and prepares it for signing by the Arch runtime.
     ///
-    /// After this call no further mutation should be performed on the builder. The method does
-    /// *not* actually broadcast the transaction – it merely makes it available for signing by
-    /// the arch runtime
+    /// This method completes the transaction building process by transferring the constructed
+    /// transaction and all associated metadata to the Arch runtime. Once called, the transaction
+    /// is ready for the signature collection phase.
+    ///
+    /// ## What it does
+    ///
+    /// The method performs these final steps:
+    /// 1. **Transfers ownership**: Passes the transaction to the Arch runtime
+    /// 2. **Provides metadata**: Includes modified accounts and signing requirements
+    /// 3. **Enables signing**: Makes the transaction available for signature collection
+    /// 4. **Prepares broadcast**: Sets up the transaction for network submission
+    ///
+    /// ## Important Notes
+    ///
+    /// - **No further changes**: After calling `finalize()`, the builder should not be modified
+    /// - **Not broadcasting**: This method does NOT broadcast the transaction to the network
+    /// - **Signing phase**: The transaction enters the signing phase, handled by Arch runtime
+    /// - **State consistency**: All modified accounts and inputs must be properly configured
+    ///
+    /// ## Prerequisites
+    ///
+    /// Before calling `finalize()`, ensure:
+    /// - All required inputs have been added
+    /// - All outputs have been configured
+    /// - Fees have been adjusted with [`Self::adjust_transaction_to_pay_fees`]
+    /// - Fee rate has been validated with [`Self::is_fee_rate_valid`]
+    ///
+    /// ## Transaction Lifecycle
+    ///
+    /// ```text
+    /// 1. TransactionBuilder::new()          ← Create builder
+    /// 2. Add inputs/outputs                 ← Populate transaction
+    /// 3. adjust_transaction_to_pay_fees()   ← Set correct fees
+    /// 4. finalize()                         ← Prepare for signing
+    /// 5. [Arch runtime signs]              ← Automatic signing
+    /// 6. [Arch runtime broadcasts]         ← Network submission
+    /// ```
+    ///
+    /// ## Examples
+    ///
+    /// ```rust
+    /// # use saturn_bitcoin_transactions::TransactionBuilder;
+    /// # use saturn_bitcoin_transactions::fee_rate::FeeRate;
+    /// # use bitcoin::ScriptBuf;
+    /// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
+    /// // After building your transaction...
+    ///
+    /// // 1. Adjust fees
+    /// let fee_rate = FeeRate::try_from(20.0)?;
+    /// let change_address = ScriptBuf::new();
+    /// builder.adjust_transaction_to_pay_fees(&fee_rate, Some(change_address))?;
+    ///
+    /// // 2. Validate fee rate
+    /// builder.is_fee_rate_valid(&fee_rate)?;
+    ///
+    /// // 3. Finalize and hand over to Arch
+    /// builder.finalize()?;
+    ///
+    /// // Transaction is now ready for signing and broadcast
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
+    /// ## Error Handling
+    ///
+    /// Returns [`ProgramError`] if:
+    /// - The transaction data is invalid
+    /// - Required metadata is missing
+    /// - The Arch runtime cannot accept the transaction
+    /// - Internal state is inconsistent
+    ///
+    /// ## See Also
+    ///
+    /// - [`Self::adjust_transaction_to_pay_fees`] for fee adjustment
+    /// - [`Self::is_fee_rate_valid`] for fee validation
+    /// - [`arch_program::program::set_transaction_to_sign`] for the underlying mechanism
     pub fn finalize(&mut self) -> Result<(), ProgramError> {
         set_transaction_to_sign(
             self.modified_accounts.as_mut_slice(),
@@ -803,7 +1580,7 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
         Ok(())
     }
 
-    fn add_tx_status(&mut self, utxo: &UtxoInfo, status: &TxStatus) {
+    fn add_tx_status(&mut self, utxo: &UtxoInfo<RuneSet>, status: &TxStatus) {
         // Check if we have not added this txid yet.
         for input in &self.transaction.input {
             let input_txid = txid_to_bytes_big_endian(&input.previous_output.txid);
@@ -820,27 +1597,62 @@ impl<'a, const MAX_MODIFIED_ACCOUNTS: usize, const MAX_INPUTS_TO_SIGN: usize>
             TxStatus::Confirmed => {}
         }
     }
+
+    #[cfg(feature = "runes")]
+    fn add_rune_input(&mut self, rune: RuneAmount) -> Result<(), BitcoinTxError> {
+        add_rune_input(&mut self.total_rune_inputs, rune)?;
+        Ok(())
+    }
+}
+
+pub fn add_rune_input<RuneSet: FixedCapacitySet<Item = RuneAmount> + Default>(
+    total_rune_inputs: &mut RuneSet,
+    rune: RuneAmount,
+) -> Result<(), BitcoinTxError> {
+    total_rune_inputs.insert_or_modify::<BitcoinTxError, _>(rune, |rune_input| {
+        rune_input.amount = rune_input
+            .amount
+            .checked_add(rune.amount)
+            .ok_or(BitcoinTxError::RuneAdditionOverflow)?;
+        Ok(())
+    })?;
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     #[cfg(feature = "utxo-consolidation")]
     use crate::utxo_info::FixedOptionF64;
-    #[cfg(feature = "runes")]
-    use crate::utxo_info::FixedOptionRuneAmount;
 
     use super::*;
+    use crate::utxo_info::SingleRuneSet;
     use arch_program::rune::{RuneAmount, RuneId};
     use arch_program::utxo::UtxoMeta;
     use bitcoin::{Amount, TxOut};
 
+    #[allow(unused_macros)]
+    macro_rules! new_tb {
+        ($max_mod:expr, $max_inputs:expr) => {{
+            #[cfg(feature = "runes")]
+            {
+                TransactionBuilder::<$max_mod, $max_inputs, SingleRuneSet>::new()
+            }
+            #[cfg(not(feature = "runes"))]
+            {
+                TransactionBuilder::<$max_mod, $max_inputs>::new()
+            }
+        }};
+    }
+
     // Helper function to create a mock UtxoInfo
-    fn create_mock_utxo(value: u64, txid: [u8; 32], vout: u32) -> UtxoInfo {
+    fn create_mock_utxo(value: u64, txid: [u8; 32], vout: u32) -> UtxoInfo<SingleRuneSet> {
         UtxoInfo {
             meta: UtxoMeta::from(txid, vout),
             value,
+            anchor: arch_program::pubkey::Pubkey::default(),
             #[cfg(feature = "runes")]
-            runes: FixedOptionRuneAmount::none(),
+            runes: SingleRuneSet::default(),
             #[cfg(feature = "utxo-consolidation")]
             needs_consolidation: FixedOptionF64::none(),
         }
@@ -852,15 +1664,32 @@ mod tests {
         txid: [u8; 32],
         vout: u32,
         rune_amount: u128,
-    ) -> UtxoInfo {
+    ) -> UtxoInfo<SingleRuneSet> {
+        let runes = {
+            #[cfg(feature = "runes")]
+            {
+                let mut runes = SingleRuneSet::default();
+                runes
+                    .insert(RuneAmount {
+                        id: RuneId::new(1, 1),
+                        amount: rune_amount,
+                    })
+                    .unwrap();
+
+                runes
+            }
+            #[cfg(not(feature = "runes"))]
+            {
+                SingleRuneSet::default()
+            }
+        };
+
         UtxoInfo {
             meta: UtxoMeta::from(txid, vout),
             value,
+            anchor: arch_program::pubkey::Pubkey::default(),
             #[cfg(feature = "runes")]
-            runes: FixedOptionRuneAmount::some(RuneAmount {
-                id: RuneId::new(1, 1),
-                amount: rune_amount,
-            }),
+            runes,
             #[cfg(feature = "utxo-consolidation")]
             needs_consolidation: FixedOptionF64::none(),
         }
@@ -871,7 +1700,7 @@ mod tests {
 
         #[test]
         fn creates_empty_transaction_builder() {
-            let builder = TransactionBuilder::<0, 0>::new();
+            let builder = new_tb!(0, 0);
 
             assert_eq!(builder.transaction.version, Version::TWO);
             assert_eq!(builder.transaction.lock_time, LockTime::ZERO);
@@ -879,7 +1708,7 @@ mod tests {
             assert_eq!(builder.transaction.output.len(), 0);
             assert_eq!(builder.total_btc_input, 0);
             #[cfg(feature = "runes")]
-            assert_eq!(builder.total_rune_input, 0);
+            assert_eq!(builder.total_rune_inputs.len(), 0);
             #[cfg(feature = "utxo-consolidation")]
             assert_eq!(builder.total_btc_consolidation_input, 0);
             #[cfg(feature = "utxo-consolidation")]
@@ -889,13 +1718,11 @@ mod tests {
         }
     }
 
-    mod replace_transaction {
+    mod new_with_transaction {
         use super::*;
 
         #[test]
-        fn replaces_transaction_successfully() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
-
+        fn new_with_transaction_successfully() {
             // Create a transaction without inputs to avoid UTXO lookup issues
             let tx_output = TxOut {
                 value: Amount::from_sat(50000),
@@ -949,24 +1776,39 @@ mod tests {
                 )
             };
 
-            let result =
-                builder.replace_transaction(transaction.clone(), &mempool_data, &user_utxos);
+            // Build the transaction builder directly from an existing transaction.
+            let builder = TransactionBuilder::<10, 10, SingleRuneSet>::new_with_transaction(
+                transaction.clone(),
+                &mempool_data,
+                &user_utxos,
+            )
+            .expect("Failed to create builder from transaction");
 
-            assert!(result.is_ok());
+            // The builder should now reflect the data derived from `transaction`.
             assert_eq!(builder.transaction.version, Version::ONE);
             assert_eq!(builder.transaction.input.len(), 1);
             assert_eq!(builder.transaction.output.len(), 1);
             assert_eq!(builder.total_btc_input, 25000);
             #[cfg(feature = "runes")]
-            assert_eq!(builder.total_rune_input, 1000);
+            assert_eq!(builder.total_rune_inputs.len(), 1);
+            #[cfg(feature = "runes")]
+            assert_eq!(
+                builder.total_rune_inputs.find(&RuneAmount {
+                    id: RuneId::new(1, 1),
+                    amount: 1000,
+                }),
+                Some(&RuneAmount {
+                    id: RuneId::new(1, 1),
+                    amount: 1000,
+                })
+            );
             assert_eq!(builder.tx_statuses.total_fee, 1000);
             assert_eq!(builder.tx_statuses.total_size, 250);
         }
 
+        #[cfg(feature = "runes")]
         #[test]
         fn calculates_rune_input_correctly() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
-
             let transaction =
                 Transaction {
                     version: Version::TWO,
@@ -1028,20 +1870,35 @@ mod tests {
 
             let mempool_data = mempool_oracle_sdk::MempoolData::<10, 10>::default();
 
-            let result = builder.replace_transaction(transaction, &mempool_data, &user_utxos);
-            println!("result: {:?}", result);
-            assert!(result.is_ok());
-            #[cfg(feature = "runes")]
-            assert_eq!(builder.total_rune_input, 1250); // 500 + 750
+            let builder = TransactionBuilder::<10, 10, SingleRuneSet>::new_with_transaction(
+                transaction,
+                &mempool_data,
+                &user_utxos,
+            )
+            .expect("Failed to build transaction");
+
+            assert_eq!(builder.total_rune_inputs.len(), 1);
+            assert_eq!(
+                builder.total_rune_inputs.find(&RuneAmount {
+                    id: RuneId::new(1, 1),
+                    amount: 1000,
+                }),
+                Some(&RuneAmount {
+                    id: RuneId::new(1, 1),
+                    amount: 1000,
+                })
+            );
         }
     }
 
     mod get_fee_paid {
+        use bitcoin::Amount;
+
         use super::*;
 
         #[test]
         fn calculates_fee_paid_correctly() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Set total BTC input directly for this test
             builder.total_btc_input = 100000;
@@ -1058,7 +1915,7 @@ mod tests {
 
         #[test]
         fn returns_error_when_insufficient_input() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Add output but no input
             builder.transaction.output.push(TxOut {
@@ -1077,7 +1934,7 @@ mod tests {
 
         #[test]
         fn returns_correct_ancestors_totals() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
             builder.tx_statuses = MempoolInfo {
                 total_fee: 1500,
                 total_size: 300,
@@ -1094,7 +1951,7 @@ mod tests {
 
         #[test]
         fn validates_fee_rate_correctly() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Set inputs and outputs manually for controlled test
             builder.total_btc_input = 100000;
@@ -1115,7 +1972,7 @@ mod tests {
 
         #[test]
         fn rejects_insufficient_fee_rate() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Set inputs and outputs manually
             builder.total_btc_input = 100000;
@@ -1140,7 +1997,7 @@ mod tests {
 
         #[test]
         fn handles_confirmed_tx_status() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
             let utxo = create_mock_utxo(50000, [1u8; 32], 0);
             let status = TxStatus::Confirmed;
 
@@ -1153,7 +2010,7 @@ mod tests {
 
         #[test]
         fn handles_pending_tx_status() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
             let utxo = create_mock_utxo(50000, [1u8; 32], 0);
             let pending_info = MempoolInfo {
                 total_fee: 2000,
@@ -1199,7 +2056,7 @@ mod tests {
 
         #[test]
         fn estimates_empty_transaction_size() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             let vsize = builder.estimate_final_tx_vsize();
 
@@ -1210,18 +2067,25 @@ mod tests {
 
         #[test]
         fn estimates_transaction_size_with_inputs_to_sign() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Add some mock inputs to sign
             let pubkey = Pubkey::system_program();
-            builder.inputs_to_sign.push(InputToSign {
-                index: 0,
-                signer: pubkey,
-            });
-            builder.inputs_to_sign.push(InputToSign {
-                index: 1,
-                signer: pubkey,
-            });
+            builder
+                .inputs_to_sign
+                .push(InputToSign {
+                    index: 0,
+                    signer: pubkey,
+                })
+                .unwrap();
+
+            builder
+                .inputs_to_sign
+                .push(InputToSign {
+                    index: 1,
+                    signer: pubkey,
+                })
+                .unwrap();
 
             // Add some transaction inputs
             builder.transaction.input.push(TxIn {
@@ -1250,7 +2114,7 @@ mod tests {
 
         #[test]
         fn calculates_consolidation_fee_correctly() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Set consolidation values
             builder.extra_tx_size_for_consolidation = 500; // 500 bytes
@@ -1263,7 +2127,7 @@ mod tests {
 
         #[test]
         fn returns_zero_when_no_consolidation() {
-            let builder = TransactionBuilder::<10, 10>::new();
+            let builder = new_tb!(10, 10);
 
             let fee_rate = FeeRate::try_from(50.0).unwrap();
             let fee = builder.get_fee_paid_by_program(&fee_rate);
@@ -1279,22 +2143,31 @@ mod tests {
 
         #[test]
         fn updates_indices_correctly_when_inserting() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
             let pubkey = Pubkey::system_program();
 
             // Add initial inputs to sign
-            builder.inputs_to_sign.push(InputToSign {
-                index: 0,
-                signer: pubkey,
-            });
-            builder.inputs_to_sign.push(InputToSign {
-                index: 1,
-                signer: pubkey,
-            });
-            builder.inputs_to_sign.push(InputToSign {
-                index: 2,
-                signer: pubkey,
-            });
+            builder
+                .inputs_to_sign
+                .push(InputToSign {
+                    index: 0,
+                    signer: pubkey,
+                })
+                .unwrap();
+            builder
+                .inputs_to_sign
+                .push(InputToSign {
+                    index: 1,
+                    signer: pubkey,
+                })
+                .unwrap();
+            builder
+                .inputs_to_sign
+                .push(InputToSign {
+                    index: 2,
+                    signer: pubkey,
+                })
+                .unwrap();
 
             // Manually call the index update logic (simulate insertion at index 1)
             let insert_index = 1u32;
@@ -1313,15 +2186,18 @@ mod tests {
 
         #[test]
         fn handles_multiple_insertions() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
             let pubkey = Pubkey::system_program();
 
             // Add inputs to sign
             for i in 0..5 {
-                builder.inputs_to_sign.push(InputToSign {
-                    index: i,
-                    signer: pubkey,
-                });
+                builder
+                    .inputs_to_sign
+                    .push(InputToSign {
+                        index: i,
+                        signer: pubkey,
+                    })
+                    .unwrap();
             }
 
             // Simulate multiple insertions
@@ -1357,7 +2233,7 @@ mod tests {
 
         #[test]
         fn tracks_modified_accounts_correctly() {
-            let builder = TransactionBuilder::<10, 10>::new();
+            let builder = new_tb!(10, 10);
 
             // Test that we start with empty modified accounts
             assert_eq!(builder.modified_accounts.len(), 0);
@@ -1368,7 +2244,7 @@ mod tests {
 
         #[test]
         fn respects_max_modified_accounts_limit() {
-            let builder = TransactionBuilder::<10, 10>::new();
+            let builder = new_tb!(10, 10);
 
             // Test that we can't exceed MAX_MODIFIED_ACCOUNTS
             assert_eq!(builder.modified_accounts.len(), 0);
@@ -1378,31 +2254,18 @@ mod tests {
 
     mod boundary_conditions {
         use super::*;
-        use arch_program::input_to_sign::InputToSign;
-        use arch_program::pubkey::Pubkey;
 
         #[test]
         fn handles_max_inputs_to_sign() {
-            let builder = TransactionBuilder::<10, 10>::new();
+            let builder = new_tb!(10, 10);
 
             // Test that the list starts empty and can hold items
             assert_eq!(builder.inputs_to_sign.len(), 0);
         }
 
         #[test]
-        #[cfg(feature = "runes")]
-        fn handles_large_rune_amounts() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
-
-            // Test with maximum possible rune amounts
-            builder.total_rune_input = u128::MAX;
-
-            assert_eq!(builder.total_rune_input, u128::MAX);
-        }
-
-        #[test]
         fn handles_large_btc_amounts() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Test with large BTC amounts (but not MAX to avoid overflow in calculations)
             builder.total_btc_input = 21_000_000 * 100_000_000; // 21M BTC in satoshis
@@ -1416,7 +2279,7 @@ mod tests {
 
         #[test]
         fn handles_zero_fee_rate() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             builder.total_btc_input = 100000;
             builder.transaction.output.push(TxOut {
@@ -1434,7 +2297,7 @@ mod tests {
 
         #[test]
         fn handles_ancestors_with_high_fees() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             builder.total_btc_input = 100000;
             builder.transaction.output.push(TxOut {
@@ -1457,7 +2320,7 @@ mod tests {
 
         #[test]
         fn handles_very_large_transactions() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Create a large transaction with many inputs
             for i in 0..50 {
@@ -1487,12 +2350,12 @@ mod tests {
     }
 
     #[cfg(feature = "utxo-consolidation")]
-    mod consolidation {
+    mod consolidation_tests {
         use super::*;
 
         #[test]
         fn tracks_consolidation_input_amounts() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Manually set consolidation amounts (normally set by add_consolidation_utxos)
             builder.total_btc_consolidation_input = 250000;
@@ -1502,7 +2365,7 @@ mod tests {
 
         #[test]
         fn tracks_extra_consolidation_size() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Manually set extra tx size (normally set by add_consolidation_utxos)
             builder.extra_tx_size_for_consolidation = 1500;
@@ -1512,7 +2375,7 @@ mod tests {
 
         #[test]
         fn consolidation_fee_calculation_integration() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             builder.extra_tx_size_for_consolidation = 800;
 
@@ -1528,7 +2391,7 @@ mod tests {
 
         #[test]
         fn maintains_transaction_structure_integrity() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Add inputs and outputs
             builder.transaction.input.push(TxIn {
@@ -1552,7 +2415,7 @@ mod tests {
 
         #[test]
         fn handles_empty_transaction_gracefully() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Empty transaction should be valid
             assert_eq!(builder.transaction.input.len(), 0);
@@ -1569,7 +2432,7 @@ mod tests {
 
         #[test]
         fn handles_fee_calculation_edge_cases() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Test with zero input
             builder.total_btc_input = 0;
@@ -1585,7 +2448,7 @@ mod tests {
 
         #[test]
         fn handles_ancestor_totals_correctly() {
-            let mut builder = TransactionBuilder::<10, 10>::new();
+            let mut builder = new_tb!(10, 10);
 
             // Test with default (empty) mempool info
             let (size, fee) = builder.get_ancestors_totals().unwrap();
@@ -1617,11 +2480,11 @@ mod tests {
 
             let amount = 10_000;
 
-            let mut transaction_builder = TransactionBuilder::<10, 10>::new();
+            let mut transaction_builder = new_tb!(10, 10);
 
-            let utxo_refs: Vec<&UtxoInfo> = utxos.iter().collect();
+            let utxo_refs: Vec<&UtxoInfo<SingleRuneSet>> = utxos.iter().collect();
             let (found_utxo_indices, found_amount) = transaction_builder
-                .find_btc_in_utxos(&utxo_refs, &PUBKEY, amount)
+                .find_btc_in_program_utxos(&utxo_refs, &PUBKEY, amount)
                 .unwrap();
 
             assert_eq!(found_utxo_indices.len(), 1, "Found a single UTXO");
@@ -1650,11 +2513,11 @@ mod tests {
 
             let amount = 10_000;
 
-            let mut transaction_builder = TransactionBuilder::<10, 10>::new();
+            let mut transaction_builder = new_tb!(10, 10);
 
-            let utxo_refs: Vec<&UtxoInfo> = utxos.iter().collect();
+            let utxo_refs: Vec<&UtxoInfo<SingleRuneSet>> = utxos.iter().collect();
             let (found_utxo_indices, found_amount) = transaction_builder
-                .find_btc_in_utxos(&utxo_refs, &PUBKEY, amount)
+                .find_btc_in_program_utxos(&utxo_refs, &PUBKEY, amount)
                 .unwrap();
 
             assert_eq!(found_utxo_indices.len(), 1, "Found a single UTXO");
@@ -1687,11 +2550,11 @@ mod tests {
 
             let amount = 10_000;
 
-            let mut transaction_builder = TransactionBuilder::<10, 10>::new();
+            let mut transaction_builder = new_tb!(10, 10);
 
-            let utxo_refs: Vec<&UtxoInfo> = utxos.iter().collect();
+            let utxo_refs: Vec<&UtxoInfo<SingleRuneSet>> = utxos.iter().collect();
             let (found_utxo_indices, found_amount) = transaction_builder
-                .find_btc_in_utxos(&utxo_refs, &PUBKEY, amount)
+                .find_btc_in_program_utxos(&utxo_refs, &PUBKEY, amount)
                 .unwrap();
 
             assert_eq!(found_utxo_indices.len(), 2, "Found two UTXOs");

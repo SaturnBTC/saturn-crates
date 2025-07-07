@@ -1,0 +1,15 @@
+[package]
+name = "saturn-account-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arch_program = { workspace = true }
+saturn-error = { workspace = true }
+bytemuck = { workspace = true }
+borsh = { workspace = true }
+saturn-bitcoin-transactions = { workspace = true }
+saturn-collections = { workspace = true }
+num-traits = { workspace = true }
+
+[features]

@@ -10,8 +10,7 @@ const INPUT_SEQUENCE_SIZE: usize = 4; // nSequence
 const INPUT_SCRIPT_SIG_SIZE: usize = 1; // varint for scriptSig length (0 for P2TR)
 
 // Total size of the input's non-witness data
-const INPUT_BASE_SIZE: usize =
-    INPUT_OUTPOINT_SIZE + INPUT_SCRIPT_SIG_SIZE + INPUT_SEQUENCE_SIZE; // 36 + 1 + 4 = 41 bytes
+const INPUT_BASE_SIZE: usize = INPUT_OUTPOINT_SIZE + INPUT_SCRIPT_SIG_SIZE + INPUT_SEQUENCE_SIZE; // 36 + 1 + 4 = 41 bytes
 
 // Sizes of the witness data
 // Each witness element includes a CompactSize uint for its length (1 byte for sizes <253 bytes)
@@ -64,7 +63,7 @@ pub const WITNESS_WEIGHT_OVERHEAD: usize = 2;
 // Compute the weight units (WU)
 // Non-witness data counts as 4 WU per byte
 const INPUT_BASE_WEIGHT_UNITS: usize = INPUT_BASE_SIZE * 4; // 41 bytes * 4 = 164 WU
-                                                                // Witness data counts as 1 WU per byte
+                                                            // Witness data counts as 1 WU per byte
 const WITNESS_WEIGHT_UNITS: usize = WITNESS_TOTAL_SIZE * 1; // 184 bytes * 1 = 184 WU
 
 // Total weight units for the input

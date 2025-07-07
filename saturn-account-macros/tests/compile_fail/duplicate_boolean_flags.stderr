@@ -1,0 +1,5 @@
+error: duplicate `signer` flag
+ --> tests/compile_fail/duplicate_boolean_flags.rs:5:23
+  |
+5 |     #[account(signer, signer)]
+  |                       ^^^^^^

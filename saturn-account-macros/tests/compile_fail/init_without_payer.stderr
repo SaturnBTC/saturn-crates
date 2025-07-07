@@ -1,0 +1,5 @@
+error: `init` field requires `payer = <account>` in #[account] attribute
+ --> tests/compile_fail/init_without_payer.rs:6:5
+  |
+6 |     #[account(init, program_id = arch_program::pubkey::Pubkey::default())]
+  |     ^

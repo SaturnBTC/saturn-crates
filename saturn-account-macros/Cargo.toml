@@ -1,0 +1,20 @@
+[package]
+name = "saturn-account-macros"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true, features = ["full"] }
+arch_program = { workspace = true }
+saturn-account-parser = { workspace = true }
+
+[dev-dependencies]
+trybuild = { workspace = true }
+insta = { workspace = true }
+proptest = { workspace = true } 

@@ -1,0 +1,5 @@
+error: `program_id = <id>` attribute is required whenever `seeds = ...` is specified
+ --> tests/compile_fail/seeds_without_program_id.rs:6:5
+  |
+6 |     #[account(seeds = &[b"seed"])]
+  |     ^

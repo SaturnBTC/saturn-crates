@@ -247,7 +247,7 @@ fn rollback_potential_inputs_and_outputs<C: PushPopCollection<InputToSign>>(
 mod tests {
     use crate::{
         input_calc::{CONTROL_BLOCK_SIZE, REDEEM_SCRIPT_SIZE},
-        utxo_info::{UtxoInfo},
+        utxo_info::UtxoInfo,
         NewPotentialInputAmount, NewPotentialOutputAmount,
     };
 
@@ -260,6 +260,7 @@ mod tests {
         absolute::LockTime, key::constants::SCHNORR_SIGNATURE_SIZE, transaction::Version, Address,
         Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness,
     };
+    use saturn_collections::generic::push_pop::PushPopError;
     use std::str::FromStr;
 
     enum AddressType {
@@ -359,8 +360,9 @@ mod tests {
     }
 
     impl PushPopCollection<InputToSign> for MockPushPopCollection {
-        fn push(&mut self, item: InputToSign) {
+        fn push(&mut self, item: InputToSign) -> Result<(), PushPopError> {
             self.items.push(item);
+            Ok(())
         }
 
         fn pop(&mut self) -> Option<InputToSign> {

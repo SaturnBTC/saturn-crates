@@ -1,0 +1,18 @@
+[package]
+name = "saturn-error"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arch_program = { workspace = true }
+thiserror = { workspace = true }
+num-derive = { workspace = true }
+num-traits = { workspace = true }
+
+# proc-macro helper (compile-time)
+saturn-error-derive = { workspace = true }
+
+[features]
+# By default we keep std for off-chain crates. On-chain crates can opt-out with `default-features = false`.
+default = ["std"]
+std = [] 

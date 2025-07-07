@@ -4,6 +4,7 @@ use std::str::FromStr;
 use arch_program::rune::RuneAmount;
 use arch_program::{rune::RuneId, utxo::UtxoMeta};
 use bitcoin::Txid;
+use saturn_collections::generic::fixed_set::{FixedCapacitySet, FixedSetError};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(feature = "utoipa")]
@@ -27,7 +28,7 @@ pub struct UtxoInfoJson {
     )]
     #[cfg_attr(feature = "utoipa", schema(value_type = String))]
     pub value: u64,
-    pub runes: Option<RuneAmountJson>,
+    pub runes: Vec<RuneAmountJson>,
     pub needs_consolidation: NeedsConsolidation,
 }
 
@@ -82,19 +83,23 @@ impl Into<FixedOptionF64> for NeedsConsolidation {
     }
 }
 
-impl Into<UtxoInfoJson> for &UtxoInfo {
+impl<RuneSet: FixedCapacitySet<Item = RuneAmount>> Into<UtxoInfoJson> for &UtxoInfo<RuneSet> {
     fn into(self) -> UtxoInfoJson {
         let runes = {
             #[cfg(feature = "runes")]
             {
-                self.runes.get().map(|rune_amount| RuneAmountJson {
-                    amount: rune_amount.amount,
-                    id: rune_amount.id,
-                })
+                self.runes
+                    .as_slice()
+                    .iter()
+                    .map(|rune_amount| RuneAmountJson {
+                        amount: rune_amount.amount,
+                        id: rune_amount.id,
+                    })
+                    .collect::<Vec<_>>()
             }
             #[cfg(not(feature = "runes"))]
             {
-                None
+                vec![]
             }
         };
 
@@ -111,27 +116,45 @@ impl Into<UtxoInfoJson> for &UtxoInfo {
     }
 }
 
-impl Into<UtxoInfo> for UtxoInfoJson {
-    fn into(self) -> UtxoInfo {
-        UtxoInfo {
+impl<RuneSet: FixedCapacitySet<Item = RuneAmount> + Default> TryInto<UtxoInfo<RuneSet>>
+    for UtxoInfoJson
+{
+    type Error = FixedSetError;
+
+    fn try_into(self) -> Result<UtxoInfo<RuneSet>, FixedSetError> {
+        let runes = {
+            #[cfg(feature = "runes")]
+            {
+                let mut rune_set = RuneSet::default();
+                for rune_amount in self.runes.iter() {
+                    rune_set.insert(RuneAmount {
+                        amount: rune_amount.amount,
+                        id: rune_amount.id,
+                    })?;
+                }
+
+                rune_set
+            }
+
+            #[cfg(not(feature = "runes"))]
+            {
+                RuneSet::default()
+            }
+        };
+
+        Ok(UtxoInfo {
             meta: UtxoMeta::from_outpoint(self.txid, self.vout),
             value: self.value,
+            anchor: arch_program::pubkey::Pubkey::default(),
             #[cfg(feature = "runes")]
-            runes: self
-                .runes
-                .map(|rune_amount| RuneAmount {
-                    amount: rune_amount.amount,
-                    id: rune_amount.id,
-                    ..Default::default()
-                })
-                .into(),
+            runes,
             #[cfg(feature = "utxo-consolidation")]
             needs_consolidation: self.needs_consolidation.into(),
-        }
+        })
     }
 }
 
-impl Serialize for UtxoInfo {
+impl<RuneSet: FixedCapacitySet<Item = RuneAmount>> Serialize for UtxoInfo<RuneSet> {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -142,13 +165,20 @@ impl Serialize for UtxoInfo {
     }
 }
 
-impl<'de> Deserialize<'de> for UtxoInfo {
+impl<'de, RuneSet: FixedCapacitySet<Item = RuneAmount> + Default> Deserialize<'de>
+    for UtxoInfo<RuneSet>
+{
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let utxo_info_json = UtxoInfoJson::deserialize(deserializer)?;
 
-        Ok(utxo_info_json.into())
+        Ok(utxo_info_json.try_into().map_err(|e: FixedSetError| {
+            serde::de::Error::custom(format!(
+                "Failed to convert UtxoInfoJson to UtxoInfo: {}",
+                e.to_string()
+            ))
+        })?)
     }
 }

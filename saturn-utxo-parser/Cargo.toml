@@ -1,0 +1,13 @@
+[package]
+name = "saturn-utxo-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arch_program = { workspace = true }
+saturn-bitcoin-transactions = { workspace = true }
+saturn-utxo-parser-derive = { path = "../saturn-utxo-parser-derive" }
+saturn-error = { workspace = true }
+saturn-account-parser = { workspace = true }
+
+[features]

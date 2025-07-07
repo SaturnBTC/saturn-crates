@@ -1,0 +1,19 @@
+[package]
+name = "saturn-account-shards-derive"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+saturn-account-shards = { workspace = true }
+syn = { workspace = true }
+bytemuck = { workspace = true }
+
+[dev-dependencies]
+saturn-bitcoin-transactions = { workspace = true }
+trybuild = { workspace = true }
+arch_program = { workspace = true }
