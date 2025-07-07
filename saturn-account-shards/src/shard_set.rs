@@ -589,8 +589,8 @@ impl<
     /// let indices: Vec<usize> = selected.selected_indices().collect();
     /// assert_eq!(indices, vec![0, 2]);
     /// ```
-    pub fn selected_indices(&self) -> impl Iterator<Item = usize> + '_ {
-        self.selected.iter().copied()
+    pub fn selected_indices(&self) -> &[usize] {
+        self.selected.as_slice()
     }
 
     /// Redistributes the *remaining satoshis* that still belong to the selected shards
@@ -881,5 +881,37 @@ impl<
             program_script_pubkey,
             fee_rate,
         )
+    }
+
+    /// Applies the provided function to all the selected shards
+    pub fn for_each<F>(&mut self, mut fun: F)
+    where
+        F: FnMut(&mut S) -> (),
+    {
+        self.selected_indices()
+            .to_vec()
+            .iter()
+            .copied()
+            .for_each(|i| fun(&mut self.shards[i]));
+    }
+
+    /// Returns all the BTC UTXOs in the selected shards
+    pub fn btc_utxos(&self) -> Vec<&U> {
+        self.selected_indices()
+            .iter()
+            .copied()
+            .filter_map(|index| self.shards.get(index))
+            .flat_map(|shard| shard.btc_utxos().iter())
+            .collect()
+    }
+
+    /// Returns all the Rune UTXOs in the selected shards
+    pub fn rune_utxos(&self) -> Vec<&U> {
+        self.selected_indices()
+            .iter()
+            .copied()
+            .filter_map(|index| self.shards.get(index))
+            .filter_map(|shard| shard.rune_utxo())
+            .collect()
     }
 }

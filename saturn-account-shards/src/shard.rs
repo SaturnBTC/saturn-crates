@@ -1,4 +1,4 @@
-use arch_program::rune::RuneAmount;
+use arch_program::rune::{RuneAmount, RuneId};
 use bitcoin::Amount;
 use saturn_bitcoin_transactions::utxo_info::UtxoInfoTrait;
 use saturn_collections::generic::fixed_set::FixedCapacitySet;
@@ -78,5 +78,18 @@ pub trait StateShard<
             .sum();
 
         Amount::from_sat(sat)
+    }
+
+    /// Calculate the total amount of Runes held in this shard's Rune UTXOs
+    fn total_rune(&self, rune_id: RuneId) -> u128 {
+        if let Some(utxo_info) = self.rune_utxo() {
+            utxo_info
+                .runes()
+                .iter()
+                .find(|rune_amount| rune_amount.id == rune_id)
+                .map_or(0, |rune_amount| rune_amount.amount)
+        } else {
+            0
+        }
     }
 }
