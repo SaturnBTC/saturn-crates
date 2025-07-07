@@ -4,6 +4,8 @@ use quote::quote;
 use quote::ToTokens;
 use std::collections::HashSet;
 use syn::{parse2, Error, FnArg, Item, ItemFn, ItemMod, PatType, Path, Type};
+use syn::parse_quote;
+use crate::program::attr::AttrConfig;
 
 /// Information about each instruction handler function encountered inside the module.
 #[derive(Clone)]
@@ -17,14 +19,8 @@ pub struct AnalysisResult {
     pub fn_infos: Vec<FnInfo>,
 }
 
-/// Performs semantic analysis on the annotated module.
-///
-/// On success returns an `AnalysisResult` containing the (possibly modified)
-/// module item and metadata about each instruction handler.
-///
-/// If semantic errors are encountered we return `Err(TokenStream)` containing
-/// one or more `compile_error!` invocations which will abort the compilation.
-pub fn analyze(item: TokenStream) -> Result<AnalysisResult, TokenStream> {
+/// Performs analysis and injects helper type aliases into the module depending on the attribute configuration.
+pub fn analyze(attr_cfg: &AttrConfig, item: TokenStream) -> Result<AnalysisResult, TokenStream> {
     // ------------------------------------------------------------
     // 1. Parse the annotated item: must be an *inline* module
     // ------------------------------------------------------------
@@ -43,6 +39,48 @@ pub fn analyze(item: TokenStream) -> Result<AnalysisResult, TokenStream> {
             return Err(err.to_compile_error());
         }
     };
+
+    {
+        if attr_cfg.enable_bitcoin_tx {
+            let max_inputs = syn::LitInt::new(
+                &attr_cfg.btc_tx_cfg.max_inputs_to_sign.unwrap().to_string(),
+                proc_macro2::Span::call_site(),
+            );
+            let max_modified = syn::LitInt::new(
+                &attr_cfg.btc_tx_cfg.max_modified_accounts.unwrap().to_string(),
+                proc_macro2::Span::call_site(),
+            );
+            let rune_set_path = attr_cfg.btc_tx_cfg.rune_set.clone().unwrap();
+
+            // Builder alias specialised with cfg constants
+            let builder_alias: syn::Item = parse_quote! {
+                #[allow(non_camel_case_types)]
+                type __SaturnTxBuilder<'info> = saturn_account_parser::TxBuilderWrapper<'info, #max_modified, #max_inputs, #rune_set_path>;
+            };
+
+            // Context alias that uses the specialised builder
+            let ctx_alias: syn::Item = parse_quote! {
+                #[allow(non_camel_case_types)]
+                type Context<'info, T> = saturn_account_parser::Context<'info, 'info, 'info, 'info, T, __SaturnTxBuilder<'info>>;
+            };
+
+            if let Some((_brace, ref mut inner_items)) = item_mod.content {
+                inner_items.insert(0, ctx_alias);
+                inner_items.insert(0, builder_alias);
+            }
+        } else {
+            // Non-BTC programs: simple alias with default TxBuilder = ()
+            let ctx_alias: syn::Item = parse_quote! {
+                #[allow(non_camel_case_types)]
+                type Context<'info, T> = saturn_account_parser::Context<'info, 'info, 'info, 'info, T>;
+            };
+
+            if let Some((_brace, ref mut inner_items)) = item_mod.content {
+                inner_items.insert(0, ctx_alias);
+            }
+        }
+    }
+
     let items = &item_mod.content.as_ref().unwrap().1;
 
     // ------------------------------------------------------------
@@ -248,9 +286,8 @@ pub fn analyze(item: TokenStream) -> Result<AnalysisResult, TokenStream> {
 
 /// Helper: returns `true` if the attribute list includes `#[cfg(test)]`.
 fn has_cfg_test(attrs: &[syn::Attribute]) -> bool {
-    use proc_macro2::{Group, Ident, TokenTree};
+    use proc_macro2::TokenTree;
     fn tokens_contain_test(ts: &proc_macro2::TokenStream) -> bool {
-        use proc_macro2::{Group, Ident, TokenTree};
         for tt in ts.clone() {
             match tt {
                 TokenTree::Ident(ref ident) if ident == "test" => return true,

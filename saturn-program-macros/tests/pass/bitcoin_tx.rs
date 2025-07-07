@@ -1,7 +1,6 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use saturn_account_macros::Accounts;
 use saturn_account_parser::codec::BorshAccount;
-use saturn_account_parser::Context;
 use saturn_program_macros::saturn_program;
 
 #[derive(Accounts)]
@@ -26,22 +25,11 @@ mod instruction {
 mod handlers {
     use super::*;
     pub fn my_handler<'info>(
-        ctx: &mut Context<
-            '_,
-            '_,
-            '_,
-            'info,
-            DummyAccounts<'info>,
-            saturn_account_parser::TxBuilderWrapper<
-                'info,
-                4,
-                4,
-                saturn_bitcoin_transactions::utxo_info::SingleRuneSet,
-            >,
-        >,
+        ctx: &mut Context<'info, DummyAccounts<'info>>,
         _params: u8,
     ) -> Result<(), arch_program::program_error::ProgramError> {
         let _ = ctx.program_id;
+        let tx_builder = ctx.tx_builder;
         Ok(())
     }
 }

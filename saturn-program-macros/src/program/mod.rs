@@ -31,7 +31,7 @@ fn try_expand(attr: TokenStream, item: TokenStream) -> Result<TokenStream, Token
     };
 
     // Phase 2: analyse the annotated item (should be an inline module)
-    let analysis = match analysis::analyze(item.clone()) {
+    let analysis = match analysis::analyze(&attr_cfg, item.clone()) {
         Ok(res) => res,
         Err(err_tokens) => return Ok(err_tokens),
     };
