@@ -34,10 +34,7 @@ pub fn check(ir: &DeriveInputIr) -> syn::Result<()> {
     // ---------------------------------------------------------------------
     for field in &ir.fields {
         if let FieldKind::Vec = field.kind {
-            match (
-                field.attr.anchor_ident.is_some(),
-                field.attr.rest,
-            ) {
+            match (field.attr.anchor_ident.is_some(), field.attr.rest) {
                 // Vec + anchor but no rest → OK
                 (true, false) => {}
                 // Vec + anchor + rest → invalid
@@ -95,4 +92,4 @@ mod tests {
         let ir = ir_from(code);
         assert!(check(&ir).is_err());
     }
-} 
+}

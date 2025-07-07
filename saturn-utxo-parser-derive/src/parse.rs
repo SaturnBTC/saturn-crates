@@ -93,9 +93,13 @@ pub fn derive_input_to_ir(input: &syn::DeriveInput) -> syn::Result<DeriveInputIr
                         }
                     }
                     syn::Meta::NameValue(nv) => {
-                        let key = nv.path.get_ident().map(|id| id.to_string()).ok_or_else(|| {
-                            syn::Error::new(nv.path.span(), "Expected identifier key")
-                        })?;
+                        let key =
+                            nv.path
+                                .get_ident()
+                                .map(|id| id.to_string())
+                                .ok_or_else(|| {
+                                    syn::Error::new(nv.path.span(), "Expected identifier key")
+                                })?;
                         match key.as_str() {
                             "value" => {
                                 // Expect integer literal for now.
@@ -192,27 +196,25 @@ pub fn derive_input_to_ir(input: &syn::DeriveInput) -> syn::Result<DeriveInputIr
         // --------------------------------------------------------------
         let kind = match &field.ty {
             syn::Type::Reference(_) => FieldKind::Single,
-            syn::Type::Array(arr) => {
-                match &arr.len {
-                    Expr::Lit(expr_lit) => {
-                        if let Lit::Int(lit_int) = &expr_lit.lit {
-                            let len = lit_int.base10_parse::<usize>()?;
-                            FieldKind::Array(len)
-                        } else {
-                            return Err(syn::Error::new(
-                                expr_lit.span(),
-                                "array length must be an integer literal",
-                            ));
-                        }
-                    }
-                    other => {
+            syn::Type::Array(arr) => match &arr.len {
+                Expr::Lit(expr_lit) => {
+                    if let Lit::Int(lit_int) = &expr_lit.lit {
+                        let len = lit_int.base10_parse::<usize>()?;
+                        FieldKind::Array(len)
+                    } else {
                         return Err(syn::Error::new(
-                            other.span(),
+                            expr_lit.span(),
                             "array length must be an integer literal",
                         ));
                     }
                 }
-            }
+                other => {
+                    return Err(syn::Error::new(
+                        other.span(),
+                        "array length must be an integer literal",
+                    ));
+                }
+            },
             syn::Type::Path(type_path) => {
                 if let Some(seg) = type_path.path.segments.last() {
                     match seg.ident.to_string().as_str() {
@@ -226,10 +228,7 @@ pub fn derive_input_to_ir(input: &syn::DeriveInput) -> syn::Result<DeriveInputIr
                         }
                     }
                 } else {
-                    return Err(syn::Error::new(
-                        type_path.span(),
-                        "Unexpected type path",
-                    ));
+                    return Err(syn::Error::new(type_path.span(), "Unexpected type path"));
                 }
             }
             other => {
@@ -286,4 +285,4 @@ mod tests {
         assert_eq!(f.attr.value, Some(1_000));
         assert_eq!(f.attr.runes, Some(RunesPresence::None));
     }
-} 
+}

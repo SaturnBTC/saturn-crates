@@ -135,9 +135,7 @@ struct DummyAccounts<'info> {
 }
 
 impl<'info> AccountsTrait<'info> for DummyAccounts<'info> {
-    fn try_accounts(
-        _accounts: &'info [AccountInfo<'info>],
-    ) -> Result<Self, ProgramError> {
+    fn try_accounts(_accounts: &'info [AccountInfo<'info>]) -> Result<Self, ProgramError> {
         Ok(Self::default())
     }
 }
@@ -151,17 +149,8 @@ impl<'info> Default for DummyAccounts<'info> {
         let data: &'static mut [u8] = Box::leak(Box::new([0u8; 1]));
         let utxo_meta: &'static UtxoMeta = Box::leak(Box::new(UtxoMeta::from([0u8; 32], 0)));
 
-        let acc_info = AccountInfo::new(
-            key,
-            lamports,
-            data,
-            key,
-            utxo_meta,
-            false,
-            false,
-            false,
-        );
+        let acc_info = AccountInfo::new(key, lamports, data, key, utxo_meta, false, false, false);
 
         Self { dummy: acc_info }
     }
-} 
+}

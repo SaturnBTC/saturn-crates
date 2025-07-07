@@ -99,17 +99,10 @@ impl<'info> Default for DummyAccounts<'info> {
         let data: &'static mut [u8] = Box::leak(Box::new([0u8; 1]));
         let utxo_meta: &'static UtxoMeta = Box::leak(Box::new(UtxoMeta::from([0u8; 32], 0)));
 
-        let acc_info = AccountInfo::new(
-            key,
-            lamports,
-            data,
-            key,
-            utxo_meta,
-            false,
-            false,
-            false,
-        );
+        let acc_info = AccountInfo::new(key, lamports, data, key, utxo_meta, false, false, false);
 
-        Self { my_account: acc_info }
+        Self {
+            my_account: acc_info,
+        }
     }
-} 
+}

@@ -69,7 +69,12 @@ fn array_too_many_inputs() {
     let utxo_b = create_utxo(7, 2, 0);
     let utxo_c = create_utxo(7, 3, 0);
     let extra = create_utxo(7, 4, 0);
-    let inputs = vec![utxo_a.clone(), utxo_b.clone(), utxo_c.clone(), extra.clone()];
+    let inputs = vec![
+        utxo_a.clone(),
+        utxo_b.clone(),
+        utxo_c.clone(),
+        extra.clone(),
+    ];
 
     let dummy = DummyAccounts::default();
     let err = ArrayParser::try_utxos(&dummy, &inputs).unwrap_err();
@@ -90,9 +95,7 @@ struct DummyAccounts<'info> {
 }
 
 impl<'info> AccountsTrait<'info> for DummyAccounts<'info> {
-    fn try_accounts(
-        _accounts: &'info [AccountInfo<'info>],
-    ) -> Result<Self, ProgramError> {
+    fn try_accounts(_accounts: &'info [AccountInfo<'info>]) -> Result<Self, ProgramError> {
         Ok(Self::default())
     }
 }
@@ -108,16 +111,12 @@ impl<'info> Default for DummyAccounts<'info> {
         let utxo_meta: &'static UtxoMeta = Box::leak(Box::new(UtxoMeta::from([0u8; 32], 0)));
 
         let acc_info = AccountInfo::new(
-            key,
-            lamports,
-            data,
-            key, // owner
-            utxo_meta,
-            false, // is_signer
+            key, lamports, data, key, // owner
+            utxo_meta, false, // is_signer
             false, // is_writable
             false, // is_executable
         );
 
         Self { dummy: acc_info }
     }
-} 
+}

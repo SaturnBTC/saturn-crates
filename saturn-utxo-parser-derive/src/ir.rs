@@ -81,4 +81,4 @@ pub struct DeriveInputIr {
     pub fields: Vec<Field>,
 }
 
-// TODO: define `FieldKind`, `UtxoAttr`, `Field`, `DeriveInputIr` etc. 
+// TODO: define `FieldKind`, `UtxoAttr`, `Field`, `DeriveInputIr` etc.
