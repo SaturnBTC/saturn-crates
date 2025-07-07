@@ -47,7 +47,6 @@
 
 use std::{cmp::Ordering, str::FromStr};
 
-#[cfg(feature = "runes")]
 use arch_program::rune::RuneAmount;
 use arch_program::{
     account::AccountInfo, helper::add_state_transition, input_to_sign::InputToSign,
@@ -549,8 +548,7 @@ pub struct TransactionBuilder<
 
     pub total_btc_input: u64,
 
-    #[cfg(not(feature = "runes"))]
-    _phantom: std::marker::PhantomData<RuneSet>,
+    _phantom: std::marker::PhantomData::<RuneSet>,
 
     #[cfg(feature = "runes")]
     pub total_rune_inputs: RuneSet,
@@ -639,6 +637,7 @@ impl<
             total_btc_consolidation_input: 0,
             #[cfg(feature = "utxo-consolidation")]
             extra_tx_size_for_consolidation: 0,
+            _phantom: std::marker::PhantomData::<RuneSet>,
         }
     }
 
@@ -655,7 +654,7 @@ impl<
             let utxo_meta = UtxoMeta::from_outpoint(previous_output.txid, previous_output.vout);
             let utxo = user_utxos.iter().find(|utxo| utxo.meta == utxo_meta);
             if utxo.is_none() {
-                return Err(BitcoinTxError::UtxoNotFound(*previous_output));
+                return Err(BitcoinTxError::UtxoNotFoundInUserUtxos);
             }
         }
 
@@ -673,6 +672,7 @@ impl<
             total_btc_consolidation_input: 0,
             #[cfg(feature = "utxo-consolidation")]
             extra_tx_size_for_consolidation: 0,
+            _phantom: std::marker::PhantomData::<RuneSet>,
         })
     }
 
@@ -748,6 +748,7 @@ impl<
             #[cfg(feature = "utxo-consolidation")]
             total_btc_consolidation_input: 0,
             extra_tx_size_for_consolidation: 0,
+            _phantom: std::marker::PhantomData::<RuneSet>,
         }
     }
 
@@ -799,6 +800,7 @@ impl<
             #[cfg(feature = "utxo-consolidation")]
             total_btc_consolidation_input: 0,
             extra_tx_size_for_consolidation: 0,
+            _phantom: std::marker::PhantomData::<RuneSet>,
         })
     }
 

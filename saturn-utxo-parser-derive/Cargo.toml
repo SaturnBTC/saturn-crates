@@ -17,3 +17,7 @@ saturn-bitcoin-transactions = { workspace = true }
 saturn-utxo-parser = { workspace = true }
 saturn-account-parser = { workspace = true }
 trybuild = { workspace = true }
+
+[features]
+default = ["runes"]
+runes = ["saturn-bitcoin-transactions/runes"]

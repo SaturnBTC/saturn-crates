@@ -1,6 +1,5 @@
 use std::str::FromStr;
 
-#[cfg(feature = "runes")]
 use arch_program::rune::RuneAmount;
 use arch_program::{rune::RuneId, utxo::UtxoMeta};
 use bitcoin::Txid;
@@ -142,14 +141,19 @@ impl<RuneSet: FixedCapacitySet<Item = RuneAmount> + Default> TryInto<UtxoInfo<Ru
             }
         };
 
-        Ok(UtxoInfo {
-            meta: UtxoMeta::from_outpoint(self.txid, self.vout),
-            value: self.value,
-            #[cfg(feature = "runes")]
-            runes,
-            #[cfg(feature = "utxo-consolidation")]
-            needs_consolidation: self.needs_consolidation.into(),
-        })
+        let mut info: UtxoInfo<RuneSet> = Default::default();
+        info.meta = UtxoMeta::from_outpoint(self.txid, self.vout);
+        info.value = self.value;
+        #[cfg(feature = "runes")]
+        {
+            info.runes = runes;
+        }
+        #[cfg(feature = "utxo-consolidation")]
+        {
+            info.needs_consolidation = self.needs_consolidation.into();
+        }
+
+        Ok(info)
     }
 }
 

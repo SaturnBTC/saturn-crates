@@ -7,8 +7,8 @@
 //! intentionally verbose so that the generated source mirrors the proven logic
 //! one-to-one.
 
-use crate::ir::{Field, FieldKind, RunesPresence};
 use crate::codegen::predicate;
+use crate::ir::{Field, FieldKind, RunesPresence};
 use quote::{format_ident, quote};
 
 /// Helper: choose the `ErrorCode` variant that should be used when the field
@@ -66,24 +66,23 @@ pub fn build_extractor(
             };
 
             // Specialised rune-id vs rune-amount diagnostics.
-            let specialised_error_logic = if attr.rune_id_expr.is_some()
-                && attr.rune_amount_expr.is_some()
-            {
-                // Build predicate that checks *id only* (drop amount).
-                let mut id_only_attr = attr.clone();
-                id_only_attr.rune_amount_expr = None;
-                let id_only_pred = predicate::build(&id_only_attr);
-                quote! {
-                    let has_id_match = remaining.iter().any(|utxo| { #id_only_pred });
-                    if has_id_match {
-                        return Err(ProgramError::Custom(ErrorCode::InvalidRuneAmount.into()));
-                    } else {
-                        return Err(ProgramError::Custom(ErrorCode::InvalidRuneId.into()));
+            let specialised_error_logic =
+                if attr.rune_id_expr.is_some() && attr.rune_amount_expr.is_some() {
+                    // Build predicate that checks *id only* (drop amount).
+                    let mut id_only_attr = attr.clone();
+                    id_only_attr.rune_amount_expr = None;
+                    let id_only_pred = predicate::build(&id_only_attr);
+                    quote! {
+                        let has_id_match = remaining.iter().any(|utxo| { #id_only_pred });
+                        if has_id_match {
+                            return Err(ProgramError::Custom(ErrorCode::InvalidRuneAmount.into()));
+                        } else {
+                            return Err(ProgramError::Custom(ErrorCode::InvalidRuneId.into()));
+                        }
                     }
-                }
-            } else {
-                quote! { return Err(ProgramError::Custom(#err_variant.into())); }
-            };
+                } else {
+                    quote! { return Err(ProgramError::Custom(#err_variant.into())); }
+                };
 
             quote! {
                 let pos_opt = remaining.iter().position(|utxo| { #predicate });
@@ -206,5 +205,3 @@ pub fn build_extractor(
         }
     }
 }
-
-// TODO: implement extraction code once IR and predicate builders are available. 

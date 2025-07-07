@@ -1,6 +1,5 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::Ident;
 use syn::{parse_macro_input, spanned::Spanned, Data, DeriveInput, Expr, Fields, Lit, Type};
 
 // Newly introduced submodules for the ongoing refactor
@@ -305,11 +304,11 @@ fn derive_utxo_parser_old(item: TokenStream) -> TokenStream {
                                         match lit_str.value().as_str() {
                                             "none" => {
                                                 attr_info.runes_check =
-                                                    Some(quote! { utxo.runes.len() == 0 })
+                                                    Some(quote! { utxo.rune_entry_count() == 0 })
                                             }
                                             "some" => {
                                                 attr_info.runes_check =
-                                                    Some(quote! { utxo.runes.len() > 0 })
+                                                    Some(quote! { utxo.rune_entry_count() > 0 })
                                             }
                                             "any" => {}
                                             other => {
@@ -385,7 +384,7 @@ fn derive_utxo_parser_old(item: TokenStream) -> TokenStream {
             }
             anchor_attr_seen = true;
 
-            attr_info.runes_check = Some(quote! { utxo.runes.len() == 0 });
+            attr_info.runes_check = Some(quote! { utxo.rune_entry_count() == 0 });
         }
 
         // Choose error variant based on which attribute checks are configured

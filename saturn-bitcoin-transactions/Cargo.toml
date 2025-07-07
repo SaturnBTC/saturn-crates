@@ -23,7 +23,7 @@ serde_json = { workspace = true }
 proptest = "1.5.0"
 
 [features]
-default = ["runes", "utxo-consolidation", "serde"]
+default = ["utxo-consolidation", "serde"]
 runes = ["ordinals"]
 utxo-consolidation = []
 serde = ["dep:serde"]

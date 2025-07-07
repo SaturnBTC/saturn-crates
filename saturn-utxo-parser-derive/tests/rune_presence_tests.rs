@@ -1,3 +1,5 @@
+#![cfg(feature = "runes")]
+
 use arch_program::account::AccountInfo;
 use arch_program::program_error::ProgramError;
 use arch_program::rune::{RuneAmount, RuneId};

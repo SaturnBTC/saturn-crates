@@ -16,8 +16,8 @@ pub fn build(attr: &UtxoAttr) -> proc_macro2::TokenStream {
 
     // runes presence
     match attr.runes {
-        Some(RunesPresence::None) => parts.push(quote! { utxo.runes.len() == 0 }),
-        Some(RunesPresence::Some) => parts.push(quote! { utxo.runes.len() > 0 }),
+        Some(RunesPresence::None) => parts.push(quote! { utxo.rune_entry_count() == 0 }),
+        Some(RunesPresence::Some) => parts.push(quote! { utxo.rune_entry_count() > 0 }),
         _ => {}
     }
 
@@ -59,6 +59,6 @@ mod tests {
         let ts = build(&a);
         let s = ts.to_string().replace(" ", "");
         assert!(s.contains("utxo.value==10"));
-        assert!(s.contains("utxo.runes.len()>0"));
+        assert!(s.contains("utxo.rune_entry_count()>0"));
     }
 }

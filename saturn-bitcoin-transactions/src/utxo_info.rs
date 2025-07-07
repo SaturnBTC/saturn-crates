@@ -1,5 +1,6 @@
+use arch_program::rune::RuneAmount;
 #[cfg(feature = "runes")]
-use arch_program::rune::{RuneAmount, RuneId};
+use arch_program::rune::RuneId;
 
 use arch_program::{
     program::get_bitcoin_tx_output_value, program_error::ProgramError, utxo::UtxoMeta,
@@ -59,7 +60,11 @@ declare_fixed_option!(FixedOptionF64, f64, 7);
 pub type SingleRuneSet = FixedSet<RuneAmount, 1>;
 
 #[cfg(not(feature = "runes"))]
-pub type SingleRuneSet = ();
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EmptyRuneSet;
+
+#[cfg(not(feature = "runes"))]
+pub type SingleRuneSet = EmptyRuneSet;
 
 #[repr(C, align(8))]
 #[derive(Clone, Copy, Debug)]
@@ -209,7 +214,7 @@ where
 
 // When the "runes" feature is disabled, fallback implementation without rune handling.
 #[cfg(not(feature = "runes"))]
-impl TryFrom<&UtxoMeta> for UtxoInfo<()> {
+impl TryFrom<&UtxoMeta> for UtxoInfo<EmptyRuneSet> {
     type Error = ProgramError;
 
     fn try_from(value: &UtxoMeta) -> std::result::Result<Self, ProgramError> {
@@ -218,7 +223,7 @@ impl TryFrom<&UtxoMeta> for UtxoInfo<()> {
         let ui_value =
             get_bitcoin_tx_output_value(txid_to_bytes_big_endian(&outpoint.txid), outpoint.vout)
                 .ok_or(ProgramError::Custom(
-                    BitcoinTxError::TransactionNotFound(outpoint.txid.to_string()).into(),
+                    BitcoinTxError::TransactionNotFound.into(),
                 ))?;
 
         Ok(UtxoInfo {
@@ -226,7 +231,7 @@ impl TryFrom<&UtxoMeta> for UtxoInfo<()> {
             value: ui_value,
             #[cfg(feature = "utxo-consolidation")]
             needs_consolidation: FixedOptionF64::none(),
-            _phantom: std::marker::PhantomData::<()>,
+            _phantom: std::marker::PhantomData::<EmptyRuneSet>,
         })
     }
 }
@@ -275,7 +280,7 @@ where
 }
 
 #[cfg(not(feature = "runes"))]
-impl UtxoInfo<()> {
+impl UtxoInfo<EmptyRuneSet> {
     /// Always returns 0 because rune support is disabled at compile time.
     pub fn rune_entry_count(&self) -> usize {
         0
@@ -300,3 +305,81 @@ impl UtxoInfo<()> {
         false
     }
 }
+
+// Provide a no-op FixedCapacitySet implementation for the unit type when rune support is disabled.
+#[cfg(not(feature = "runes"))]
+impl FixedCapacitySet for EmptyRuneSet {
+    type Item = RuneAmount;
+
+    #[inline]
+    fn capacity(&self) -> usize {
+        0
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        0
+    }
+
+    #[inline]
+    fn contains<Q>(&self, _item: &Q) -> bool
+    where
+        Self::Item: PartialEq<Q>,
+    {
+        false
+    }
+
+    #[inline]
+    fn find<Q>(&self, _item: &Q) -> Option<&Self::Item>
+    where
+        Self::Item: PartialEq<Q>,
+    {
+        None
+    }
+
+    #[inline]
+    fn find_mut<Q>(&mut self, _item: &Q) -> Option<&mut Self::Item>
+    where
+        Self::Item: PartialEq<Q>,
+    {
+        None
+    }
+
+    #[inline]
+    fn insert(&mut self, _item: Self::Item) -> Result<(), FixedSetError> {
+        Err(FixedSetError::Full)
+    }
+
+    #[inline]
+    fn insert_or_modify<E, F>(&mut self, _item: Self::Item, _modify: F) -> Result<(), E>
+    where
+        F: FnMut(&mut Self::Item) -> Result<(), E>,
+        E: From<FixedSetError>,
+    {
+        Err(FixedSetError::Full.into())
+    }
+
+    #[inline]
+    fn remove<Q>(&mut self, _item: &Q) -> Option<Self::Item>
+    where
+        Self::Item: PartialEq<Q>,
+    {
+        None
+    }
+
+    #[inline]
+    fn as_slice(&self) -> &[Self::Item] {
+        &[]
+    }
+
+    #[inline]
+    fn as_mut_slice(&mut self) -> &mut [Self::Item] {
+        &mut []
+    }
+}
+
+#[cfg(not(feature = "runes"))]
+unsafe impl Pod for EmptyRuneSet {}
+
+#[cfg(not(feature = "runes"))]
+unsafe impl Zeroable for EmptyRuneSet {}
