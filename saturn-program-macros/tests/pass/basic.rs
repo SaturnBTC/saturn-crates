@@ -1,4 +1,3 @@
-use arch_program::account::AccountInfo;
 use borsh::{BorshDeserialize, BorshSerialize};
 use saturn_account_macros::Accounts;
 use saturn_account_parser::codec::BorshAccount;
@@ -17,7 +16,6 @@ mod instruction {
         MyHandler(u8),
     }
 }
-use instruction::Instr;
 
 #[saturn_program(instruction = "crate::instruction::Instr")]
 mod handlers {

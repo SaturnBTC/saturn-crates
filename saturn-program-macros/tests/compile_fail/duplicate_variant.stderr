@@ -1,5 +1,5 @@
 error: duplicate instruction variant after case conversion; rename the handler or use distinct names
-  --> tests/compile_fail/duplicate_variant.rs:31:12
+  --> tests/compile_fail/duplicate_variant.rs:30:12
    |
-31 |     pub fn fooHandler<'info>(
+30 |     pub fn fooHandler<'info>(
    |            ^^^^^^^^^^

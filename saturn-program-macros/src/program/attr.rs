@@ -288,4 +288,104 @@ mod tests {
         );
         assert!(parse(ts).is_err());
     }
+
+    #[test]
+    fn error_on_duplicate_instruction_key() {
+        let ts: proc_macro2::TokenStream = quote!(
+            instruction = "crate::ix::Instr",
+            instruction = "crate::ix::OtherInstr"
+        );
+        assert!(parse(ts).is_err());
+    }
+
+    #[test]
+    fn error_on_duplicate_bitcoin_transaction_key() {
+        let ts: proc_macro2::TokenStream = quote!(
+            instruction = "crate::ix::Instr",
+            bitcoin_transaction = true,
+            bitcoin_transaction = false
+        );
+        assert!(parse(ts).is_err());
+    }
+
+    #[test]
+    fn error_on_duplicate_btc_tx_cfg_section() {
+        let ts: proc_macro2::TokenStream = quote!(
+            instruction = "crate::ix::Instr",
+            bitcoin_transaction = true,
+            btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1),
+            btc_tx_cfg(max_inputs_to_sign = 2, max_modified_accounts = 2)
+        );
+        assert!(parse(ts).is_err());
+    }
+
+    #[test]
+    fn error_on_unknown_attribute_key() {
+        let ts: proc_macro2::TokenStream = quote!(instruction = "crate::ix::Instr", foo = 42);
+        assert!(parse(ts).is_err());
+    }
+
+    #[test]
+    fn error_on_unknown_btc_tx_cfg_key() {
+        let ts: proc_macro2::TokenStream = quote!(
+            instruction = "crate::ix::Instr",
+            bitcoin_transaction = true,
+            btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1, bar = 10)
+        );
+        assert!(parse(ts).is_err());
+    }
+
+    #[test]
+    fn error_on_instruction_path_not_namespaced() {
+        let ts: proc_macro2::TokenStream = quote!(instruction = "Instr");
+        assert!(parse(ts).is_err());
+    }
+
+    #[test]
+    fn error_on_missing_btc_tx_cfg_when_flag_true() {
+        let ts: proc_macro2::TokenStream =
+            quote!(instruction = "crate::ix::Instr", bitcoin_transaction = true);
+        assert!(parse(ts).is_err());
+    }
+
+    #[test]
+    fn error_on_btc_tx_cfg_missing_required_fields() {
+        // Only specify one of the required fields
+        let ts: proc_macro2::TokenStream = quote!(
+            instruction = "crate::ix::Instr",
+            bitcoin_transaction = true,
+            btc_tx_cfg(max_inputs_to_sign = 8)
+        );
+        assert!(parse(ts).is_err());
+    }
+
+    #[test]
+    fn parses_btc_tx_cfg_with_default_rune_set() {
+        let ts: proc_macro2::TokenStream = quote!(
+            instruction = "crate::ix::Instr",
+            bitcoin_transaction = true,
+            btc_tx_cfg(max_inputs_to_sign = 4, max_modified_accounts = 8)
+        );
+        let cfg = parse(ts).expect("should parse");
+        // If rune_set not provided it should default to SingleRuneSet path
+        let expected: syn::Path =
+            syn::parse_str("saturn_bitcoin_transactions::utxo_info::SingleRuneSet").unwrap();
+        assert_eq!(cfg.btc_tx_cfg.rune_set.unwrap(), expected);
+    }
+
+    #[test]
+    fn parses_btc_tx_cfg_with_custom_rune_set() {
+        let ts: proc_macro2::TokenStream = quote!(
+            instruction = "crate::ix::Instr",
+            bitcoin_transaction = true,
+            btc_tx_cfg(
+                max_inputs_to_sign = 2,
+                max_modified_accounts = 4,
+                rune_set = "crate::custom::RuneSet"
+            )
+        );
+        let cfg = parse(ts).expect("should parse");
+        let expected: syn::Path = syn::parse_str("crate::custom::RuneSet").unwrap();
+        assert_eq!(cfg.btc_tx_cfg.rune_set.unwrap(), expected);
+    }
 }

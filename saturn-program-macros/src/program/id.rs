@@ -3,7 +3,6 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{LitStr, Result as SynResult};
 
-
 /// Internal helper for parsing the macro input – we expect exactly one string literal.
 struct IdLiteral(LitStr);
 
@@ -47,5 +46,40 @@ pub fn declare_id(input: TokenStream) -> TokenStream {
             ::arch_program::pubkey::Pubkey::from_str(#id_literal)
                 .expect("Invalid program ID supplied to declare_id! macro")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::quote;
+
+    #[test]
+    fn generates_id_function_for_valid_literal() {
+        let input: TokenStream = quote!("11111111111111111111111111111111");
+        let ts = declare_id(input);
+        let ts_str = ts.to_string();
+        // Expect it contains fn id() and the same literal string
+        assert!(ts_str.contains("fn id"));
+        assert!(ts_str.contains("11111111111111111111111111111111"));
+    }
+
+    #[test]
+    fn returns_compile_error_for_non_literal() {
+        let input: TokenStream = quote!(12345);
+        let ts = declare_id(input);
+        let ts_str = ts.to_string();
+        assert!(
+            ts_str.contains("compile_error"),
+            "Non-literal input should produce compile_error tokens"
+        );
+    }
+
+    #[test]
+    fn returns_compile_error_for_missing_input() {
+        let input: TokenStream = quote!();
+        let ts = declare_id(input);
+        let ts_str = ts.to_string();
+        assert!(ts_str.contains("compile_error"));
     }
 }

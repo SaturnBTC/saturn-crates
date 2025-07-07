@@ -125,3 +125,67 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
         #dispatcher
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::{quote, ToTokens};
+    use syn::parse_quote;
+
+    fn dummy_attr_cfg(enable_btc: bool) -> AttrConfig {
+        let mut cfg = AttrConfig {
+            instruction_path: syn::parse_str::<syn::Path>("crate::ix::Instr").unwrap(),
+            enable_bitcoin_tx: enable_btc,
+            btc_tx_cfg: Default::default(),
+        };
+        if enable_btc {
+            cfg.btc_tx_cfg.max_inputs_to_sign = Some(2);
+            cfg.btc_tx_cfg.max_modified_accounts = Some(4);
+            cfg.btc_tx_cfg.rune_set = Some(syn::parse_str("crate::RuneSet").unwrap());
+        }
+        cfg
+    }
+
+    fn dummy_analysis(module_name: &str) -> AnalysisResult {
+        let mod_ident = syn::Ident::new(module_name, proc_macro2::Span::call_site());
+        let item_mod: syn::ItemMod = parse_quote! { mod #mod_ident {} };
+        let fn_info = FnInfo {
+            fn_ident: syn::Ident::new("handle_transfer", proc_macro2::Span::call_site()),
+            acc_ty: syn::parse_str::<syn::Path>("crate::Acc").unwrap(),
+        };
+        AnalysisResult {
+            item_mod,
+            fn_infos: vec![fn_info],
+        }
+    }
+
+    #[test]
+    fn generates_simple_dispatcher() {
+        let attr_cfg = dummy_attr_cfg(false);
+        let analysis = dummy_analysis("my_mod");
+        let ts = generate(&attr_cfg, &analysis);
+        let ts_str = ts.to_string();
+        assert!(
+            ts_str.contains("Context :: new_simple"),
+            "Should use simple context when BTC disabled"
+        );
+        assert!(!ts_str.contains("new_with_btc_tx"));
+        assert!(ts_str.contains("handle_transfer"));
+        assert!(ts_str.contains("my_mod"));
+    }
+
+    #[test]
+    fn generates_btc_dispatcher() {
+        let attr_cfg = dummy_attr_cfg(true);
+        let analysis = dummy_analysis("btc_mod");
+        let ts = generate(&attr_cfg, &analysis);
+        let ts_str = ts.to_string();
+        assert!(
+            ts_str.contains("new_with_btc_tx"),
+            "Should use BTC context when enabled"
+        );
+        assert!(ts_str.contains("handle_transfer"));
+        // Ensure const generics were injected (numbers 2 and 4 from cfg)
+        assert!(ts_str.contains("2") && ts_str.contains("4"));
+    }
+}

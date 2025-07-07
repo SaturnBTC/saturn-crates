@@ -548,7 +548,7 @@ pub struct TransactionBuilder<
 
     pub total_btc_input: u64,
 
-    _phantom: std::marker::PhantomData::<RuneSet>,
+    _phantom: std::marker::PhantomData<RuneSet>,
 
     #[cfg(feature = "runes")]
     pub total_rune_inputs: RuneSet,

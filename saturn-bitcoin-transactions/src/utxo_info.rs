@@ -11,6 +11,8 @@ use saturn_collections::declare_fixed_array;
 use saturn_collections::declare_fixed_option;
 // `FixedCapacitySet` is required regardless of feature flags so import it unconditionally.
 use saturn_collections::generic::fixed_set::FixedCapacitySet;
+#[cfg(not(feature = "runes"))]
+use saturn_collections::generic::fixed_set::FixedSetError;
 // `FixedSet` is only needed when the `runes` feature is enabled.
 #[cfg(feature = "runes")]
 use saturn_collections::generic::fixed_set::FixedSet;
