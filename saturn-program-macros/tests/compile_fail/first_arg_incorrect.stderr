@@ -1,0 +1,5 @@
+error: first argument must be &mut Context
+  --> tests/compile_fail/first_arg_incorrect.rs:25:15
+   |
+25 |         _ctx: DummyAccounts<'info>,
+   |               ^^^^^^^^^^^^^^^^^^^^

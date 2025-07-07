@@ -190,3 +190,75 @@ impl<'info> Default for DummyAccounts<'info> {
         }
     }
 }
+
+// -----------------------------------------------------------------------------
+// Dynamic anchored Vec<&UtxoInfo> functionality (new feature)
+// -----------------------------------------------------------------------------
+
+#[derive(Debug)]
+struct ShardedAccounts<'info> {
+    shards: Vec<AccountInfo<'info>>, // Vector we will anchor to
+}
+
+impl<'info> saturn_account_parser::Accounts<'info> for ShardedAccounts<'info> {
+    fn try_accounts(_accounts: &'info [AccountInfo<'info>]) -> Result<Self, ProgramError> {
+        Ok(Self::default())
+    }
+}
+
+impl<'info> Default for ShardedAccounts<'info> {
+    fn default() -> Self {
+        use arch_program::{pubkey::Pubkey, utxo::UtxoMeta};
+
+        let key: &'static Pubkey = Box::leak(Box::new(Pubkey::default()));
+        let lamports: &'static mut u64 = Box::leak(Box::new(0u64));
+        let data: &'static mut [u8] = Box::leak(Box::new([0u8; 1]));
+        let utxo_meta: &'static UtxoMeta = Box::leak(Box::new(UtxoMeta::from([0u8; 32], 0)));
+
+        let acc_info = AccountInfo::new(
+            key, lamports, data, key, // owner
+            utxo_meta, false, false, false,
+        );
+
+        // Build a vector with **runtime** length (not a const generic)
+        Self {
+            shards: vec![acc_info.clone(), acc_info.clone(), acc_info.clone()],
+        }
+    }
+}
+
+#[derive(Debug, UtxoParser)]
+#[utxo_accounts(ShardedAccounts<'a>)]
+struct AnchoredVecParser<'a> {
+    // Must match the length of `accounts.shards` (3) – checked at runtime
+    #[utxo(anchor = shards, value = 1)]
+    shard_utxos: Vec<&'a UtxoInfo>,
+}
+
+#[test]
+fn anchored_vec_parses_with_matching_len() {
+    // three matching UTXOs (value = 1)
+    let inputs = vec![
+        create_utxo(1, 1, 0),
+        create_utxo(1, 2, 0),
+        create_utxo(1, 3, 0),
+    ];
+
+    let accs = ShardedAccounts::default();
+    let parsed = AnchoredVecParser::try_utxos(&accs, &inputs).expect("anchored vec should parse");
+    assert_eq!(parsed.shard_utxos.len(), 3);
+}
+
+#[test]
+fn anchored_vec_fails_when_len_mismatch() {
+    // only two UTXOs instead of three
+    let inputs = vec![create_utxo(1, 1, 0), create_utxo(1, 2, 0)];
+
+    let accs = ShardedAccounts::default();
+    let err = AnchoredVecParser::try_utxos(&accs, &inputs).unwrap_err();
+    // Any predicate failure here maps to MissingRequiredUtxo / InvalidUtxoValue / InvalidRunesPresence.
+    assert_eq!(
+        err,
+        ProgramError::Custom(ErrorCode::InvalidRunesPresence.into())
+    );
+}

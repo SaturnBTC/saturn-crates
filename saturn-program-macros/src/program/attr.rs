@@ -247,3 +247,45 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
         btc_tx_cfg,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::quote;
+
+    #[test]
+    fn parses_minimal_instruction() {
+        let ts: proc_macro2::TokenStream = quote!(instruction = "crate::ix::Instr");
+        let cfg = parse(ts).expect("should parse");
+        assert_eq!(cfg.instruction_path.segments.last().unwrap().ident, "Instr");
+        assert!(!cfg.enable_bitcoin_tx);
+    }
+
+    #[test]
+    fn parses_full_bitcoin_tx_cfg() {
+        let ts: proc_macro2::TokenStream = quote!(
+            instruction = "crate::ix::Instr",
+            bitcoin_transaction = true,
+            btc_tx_cfg(max_inputs_to_sign = 8, max_modified_accounts = 16)
+        );
+        let cfg = parse(ts).expect("should parse");
+        assert!(cfg.enable_bitcoin_tx);
+        assert_eq!(cfg.btc_tx_cfg.max_inputs_to_sign, Some(8));
+        assert_eq!(cfg.btc_tx_cfg.max_modified_accounts, Some(16));
+    }
+
+    #[test]
+    fn error_on_missing_instruction() {
+        let ts: proc_macro2::TokenStream = quote!(bitcoin_transaction = false);
+        assert!(parse(ts).is_err());
+    }
+
+    #[test]
+    fn error_on_btc_tx_cfg_without_flag() {
+        let ts: proc_macro2::TokenStream = quote!(
+            instruction = "crate::ix::Instr",
+            btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1)
+        );
+        assert!(parse(ts).is_err());
+    }
+}

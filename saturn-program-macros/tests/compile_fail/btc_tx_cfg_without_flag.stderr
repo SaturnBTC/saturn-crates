@@ -1,0 +1,5 @@
+error: `btc_tx_cfg` is only allowed when `bitcoin_transaction = true`
+  --> tests/compile_fail/btc_tx_cfg_without_flag.rs:12:5
+   |
+12 |     btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1)
+   |     ^^^^^^^^^^

@@ -1,33 +1,30 @@
-use arch_program::account::AccountInfo;
 use borsh::{BorshDeserialize, BorshSerialize};
 use saturn_account_macros::Accounts;
 use saturn_account_parser::codec::BorshAccount;
-use saturn_account_parser::Context;
 use saturn_program_macros::saturn_program;
 
 #[derive(Accounts)]
 struct DummyAccounts<'info> {
     #[account(signer)]
-    caller: BorshAccount<'info, u64>,
+    acc: BorshAccount<'info, u64>,
 }
 
 mod instruction {
     use super::*;
     #[derive(BorshSerialize, BorshDeserialize)]
     pub enum Instr {
-        MyHandler(u8),
+        Bad(u8),
     }
 }
-use instruction::Instr;
 
 #[saturn_program(instruction = "crate::instruction::Instr")]
 mod handlers {
     use super::*;
-    pub fn my_handler<'info>(
-        ctx: &mut Context<'_, '_, '_, 'info, DummyAccounts<'info>>,
-        _params: u8,
+    // The first argument type is incorrect: should be &mut Context
+    pub fn bad<'info>(
+        _ctx: DummyAccounts<'info>,
+        _p: u8,
     ) -> Result<(), arch_program::program_error::ProgramError> {
-        let _ = ctx.program_id; // access something to avoid warnings
         Ok(())
     }
 }

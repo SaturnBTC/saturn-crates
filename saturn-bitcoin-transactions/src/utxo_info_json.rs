@@ -145,7 +145,6 @@ impl<RuneSet: FixedCapacitySet<Item = RuneAmount> + Default> TryInto<UtxoInfo<Ru
         Ok(UtxoInfo {
             meta: UtxoMeta::from_outpoint(self.txid, self.vout),
             value: self.value,
-            anchor: arch_program::pubkey::Pubkey::default(),
             #[cfg(feature = "runes")]
             runes,
             #[cfg(feature = "utxo-consolidation")]

@@ -3,6 +3,12 @@ use quote::{format_ident, quote};
 use syn::Ident;
 use syn::{parse_macro_input, spanned::Spanned, Data, DeriveInput, Expr, Fields, Lit, Type};
 
+// Newly introduced submodules for the ongoing refactor
+mod codegen;
+mod ir;
+mod parse;
+mod validate;
+
 /// Information extracted from a single field attribute
 struct AttrInfo {
     value_check: Option<proc_macro2::TokenStream>,
@@ -170,8 +176,8 @@ enum FieldKind {
 ///
 /// [`TryFromUtxos`]: crate::TryFromUtxos
 /// [`ProgramError`]: arch_program::program_error::ProgramError
-#[proc_macro_derive(UtxoParser, attributes(utxo, utxo_accounts))]
-pub fn derive_utxo_parser(item: TokenStream) -> TokenStream {
+#[allow(dead_code)]
+fn derive_utxo_parser_old(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
 
     let struct_ident = &input.ident;
@@ -378,6 +384,8 @@ pub fn derive_utxo_parser(item: TokenStream) -> TokenStream {
                 .into();
             }
             anchor_attr_seen = true;
+
+            attr_info.runes_check = Some(quote! { utxo.runes.len() == 0 });
         }
 
         // Choose error variant based on which attribute checks are configured
@@ -470,7 +478,6 @@ pub fn derive_utxo_parser(item: TokenStream) -> TokenStream {
                                 #ident.meta.txid_big_endian(),
                                 #ident.meta.vout(),
                             );
-                            #ident.set_anchor(*_anchor_target.key);
                         }
                     } else {
                         quote! {}
@@ -532,7 +539,6 @@ pub fn derive_utxo_parser(item: TokenStream) -> TokenStream {
                             utxo_ref.meta.txid_big_endian(),
                             utxo_ref.meta.vout(),
                         );
-                        utxo_ref.set_anchor(*_anchor_target.key);
                     }
                 } else {
                     quote! {}
@@ -553,22 +559,63 @@ pub fn derive_utxo_parser(item: TokenStream) -> TokenStream {
                 }
             }
             FieldKind::Vec => {
-                if !attr_info.rest {
-                    return syn::Error::new(
-                        ty.span(),
-                        "Vec field must be marked with rest flag: #[utxo(rest, ...)]",
-                    )
-                    .to_compile_error()
-                    .into();
-                }
-                quote! {
-                    let mut #ident: Vec<&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo> = Vec::new();
-                    remaining.retain(|utxo| {
-                        if { #predicate } {
-                            #ident.push(*utxo);
-                            false // remove from remaining
-                        } else { true }
-                    });
+                if let Some(anchor_ident) = &attr_info.anchor_ident {
+                    // Reject invalid combination – anchoring expects an exact one-to-one binding
+                    // and therefore cannot coexist with the catch-all `rest` flag.
+                    if attr_info.rest {
+                        return syn::Error::new(
+                            ty.span(),
+                            "Vec field cannot combine `anchor = <field>` with `rest` flag",
+                        )
+                        .to_compile_error()
+                        .into();
+                    }
+                    let anchor_ident_tok = anchor_ident.clone();
+
+                    quote! {
+                        // Determine how many shard accounts (or whatever we anchor to) we must match.
+                        let target_len = accounts.#anchor_ident_tok.len();
+                        let mut #ident: Vec<&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo> =
+                            Vec::with_capacity(target_len);
+
+                        for i in 0..target_len {
+                            // Look for the next UTXO that satisfies the predicate.
+                            let pos_opt = remaining.iter().position(|utxo| { #predicate });
+                            let utxo_ref = if let Some(idx) = pos_opt {
+                                remaining.remove(idx)
+                            } else {
+                                return Err(ProgramError::Custom(#err_variant.into()));
+                            };
+
+                            // Perform the anchor check (1-to-1 with the i-th account).
+                            let _anchor_target = &accounts.#anchor_ident_tok[i];
+                            let _anchor_ix = arch_program::system_instruction::anchor(
+                                _anchor_target.key,
+                                utxo_ref.meta.txid_big_endian(),
+                                utxo_ref.meta.vout(),
+                            );
+
+                            #ident.push(utxo_ref);
+                        }
+                    }
+                } else {
+                    if !attr_info.rest {
+                        return syn::Error::new(
+                            ty.span(),
+                            "Vec field must be marked with rest flag: #[utxo(rest, ...)]",
+                        )
+                        .to_compile_error()
+                        .into();
+                    }
+                    quote! {
+                        let mut #ident: Vec<&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo> = Vec::new();
+                        remaining.retain(|utxo| {
+                            if { #predicate } {
+                                #ident.push(*utxo);
+                                false // remove from remaining
+                            } else { true }
+                        });
+                    }
                 }
             }
             FieldKind::Optional => {
@@ -583,7 +630,6 @@ pub fn derive_utxo_parser(item: TokenStream) -> TokenStream {
                                     __opt_utxo.meta.txid_big_endian(),
                                     __opt_utxo.meta.vout(),
                                 );
-                                __opt_utxo.set_anchor(*_anchor_target.key);
                             }
                         }
                     } else {
@@ -633,6 +679,28 @@ pub fn derive_utxo_parser(item: TokenStream) -> TokenStream {
             }
         }
     };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_derive(UtxoParser, attributes(utxo, utxo_accounts))]
+pub fn derive_utxo_parser(item: TokenStream) -> TokenStream {
+    // Parse the incoming tokens into `syn::DeriveInput` first.
+    let input = parse_macro_input!(item as DeriveInput);
+
+    // 1) Convert to internal IR
+    let ir = match parse::derive_input_to_ir(&input) {
+        Ok(ir) => ir,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
+    // 2) Run semantic validation
+    if let Err(e) = validate::check(&ir) {
+        return e.to_compile_error().into();
+    }
+
+    // 3) Generate final implementation
+    let expanded = codegen::expand(&ir);
 
     TokenStream::from(expanded)
 }

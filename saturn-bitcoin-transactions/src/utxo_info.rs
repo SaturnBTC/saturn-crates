@@ -70,12 +70,6 @@ pub struct UtxoInfo<RuneSet: FixedCapacitySet<Item = RuneAmount> = SingleRuneSet
     pub meta: UtxoMeta,
     pub value: u64,
 
-    /// Account this UTXO is anchored to. A zero pubkey (default) means
-    /// **no anchor**.  Keeping this as a raw `Pubkey` instead of
-    /// `Option<Pubkey>` ensures the whole `UtxoInfo` remains `Pod` on
-    /// all platforms.
-    pub anchor: arch_program::pubkey::Pubkey,
-
     #[cfg(feature = "runes")]
     pub runes: RuneSet,
 
@@ -93,7 +87,6 @@ impl<RuneSet: FixedCapacitySet<Item = RuneAmount>> UtxoInfoTrait<RuneSet> for Ut
         Self {
             meta,
             value,
-            anchor: arch_program::pubkey::Pubkey::default(),
             ..Default::default()
         }
     }
@@ -176,7 +169,6 @@ where
         Self {
             meta: UtxoMeta::from([0; 32], 0),
             value: u64::default(),
-            anchor: arch_program::pubkey::Pubkey::default(),
             #[cfg(feature = "runes")]
             runes: RuneSet::default(),
             #[cfg(feature = "utxo-consolidation")]
@@ -208,7 +200,6 @@ where
         Ok(UtxoInfo {
             meta: value.clone(),
             value: ui_value,
-            anchor: arch_program::pubkey::Pubkey::default(),
             runes: runes,
             #[cfg(feature = "utxo-consolidation")]
             needs_consolidation: FixedOptionF64::none(),
@@ -233,7 +224,6 @@ impl TryFrom<&UtxoMeta> for UtxoInfo<()> {
         Ok(UtxoInfo {
             meta: value.clone(),
             value: ui_value,
-            anchor: arch_program::pubkey::Pubkey::default(),
             #[cfg(feature = "utxo-consolidation")]
             needs_consolidation: FixedOptionF64::none(),
             _phantom: std::marker::PhantomData::<()>,
@@ -308,30 +298,5 @@ impl UtxoInfo<()> {
         _amount: u128,
     ) -> bool {
         false
-    }
-}
-
-impl<RuneSet: FixedCapacitySet<Item = RuneAmount>> UtxoInfo<RuneSet> {
-    /// Returns `true` if this UTXO is already anchored to an on-chain account.
-    ///
-    /// A default/zero `Pubkey` means **no anchor**.
-    #[inline]
-    pub fn is_anchor(&self) -> bool {
-        self.anchor != arch_program::pubkey::Pubkey::default()
-    }
-
-    /// Sets the `anchor` field even when only an immutable reference is available.
-    ///
-    /// Safety: we guarantee exclusive access to the `anchor` field for the
-    /// duration of this call and do not read from `self` while it mutates,
-    /// thus respecting Rust's aliasing rules.
-    #[inline]
-    pub fn set_anchor(&self, anchor: arch_program::pubkey::Pubkey) {
-        // SAFETY: See docs above – we cast away immutability for the shortest
-        // possible time, mutate one field, then immediately relinquish it.
-        unsafe {
-            let mut_ptr = self as *const Self as *mut Self;
-            (*mut_ptr).anchor = anchor;
-        }
     }
 }

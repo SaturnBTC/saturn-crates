@@ -115,7 +115,12 @@ impl Pubkey {
     /// # Safety
     /// This method makes a direct system call and should only be used within a program context.
     pub fn log(&self) {
-        unsafe { crate::syscalls::sol_log_pubkey(self.as_ref() as *const _ as *const u8) };
+        #[cfg(target_os = "solana")]
+        unsafe {
+            crate::syscalls::sol_log_pubkey(self.as_ref() as *const _ as *const u8);
+        }
+        #[cfg(not(target_os = "solana"))]
+        crate::program_stubs::_sol_log_pubkey(self.as_ref() as *const _ as *const u8);
     }
 
     /// Checks if a public key represents a point on the secp256k1 curve.
@@ -330,6 +335,21 @@ impl AsMut<[u8]> for Pubkey {
 impl From<[u8; 32]> for Pubkey {
     fn from(value: [u8; 32]) -> Self {
         Pubkey(value)
+    }
+}
+
+impl std::str::FromStr for Pubkey {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Decode the provided base58 string into raw bytes.
+        let bytes = bs58::decode(s)
+            .into_vec()
+            .map_err(|_| "Invalid base58 string for Pubkey")?;
+        if bytes.len() != 32 {
+            return Err("Invalid length for Pubkey (expected 32 bytes)");
+        }
+        Ok(Pubkey::from_slice(&bytes))
     }
 }
 

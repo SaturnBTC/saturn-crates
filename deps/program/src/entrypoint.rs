@@ -186,11 +186,19 @@ macro_rules! entrypoint {
 #[macro_export]
 macro_rules! custom_heap_default {
     () => {
+        #[cfg(target_os = "solana")]
         #[global_allocator]
         static A: $crate::entrypoint::BumpAllocator = $crate::entrypoint::BumpAllocator {
             start: $crate::entrypoint::HEAP_START_ADDRESS as usize,
             len: $crate::entrypoint::HEAP_LENGTH,
         };
+
+        // For regular host builds (unit tests, trybuild, etc.) fall back to the system allocator
+        // to avoid dereferencing unmapped addresses like `0x300000000`, which leads to
+        // segmentation faults during tests.
+        #[cfg(not(target_os = "solana"))]
+        #[global_allocator]
+        static A: std::alloc::System = std::alloc::System;
     };
 }
 

@@ -43,7 +43,7 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
                 #instruction_path :: #variant_ident ( inner ) => {
                     let mut accounts_struct = <#acc_ty as saturn_account_parser::Accounts>::try_accounts(accounts)?;
 
-                    let btc_tx_builder = saturn_account_parser::TxBuilderWrapper::<'a, #max_mod_lit, #max_inputs_lit, #rune_set_path>::default();
+                    let btc_tx_builder = saturn_account_parser::TxBuilderWrapper::<'info, #max_mod_lit, #max_inputs_lit, #rune_set_path>::default();
 
                     let mut ctx = saturn_account_parser::Context::new_with_btc_tx(
                         program_id,
@@ -62,13 +62,13 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
             quote! {
                 #instruction_path :: #variant_ident ( inner ) => {
                     let mut accounts_struct = <#acc_ty as saturn_account_parser::Accounts>::try_accounts(accounts)?;
-                    let mut ctx = saturn_account_parser::Context {
+
+                    let mut ctx = saturn_account_parser::Context::new_simple(
                         program_id,
-                        accounts: &mut accounts_struct,
-                        remaining_accounts: &[],
-                        btc_tx: (),
-                    };
-                    #module_ident :: #fn_ident (&mut ctx, inner)?;
+                        &mut accounts_struct,
+                        &[],
+                    );
+                    #module_ident :: #fn_ident(&mut ctx, inner)?;
                 }
             }
         };
@@ -99,9 +99,9 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
         arch_program::entrypoint!(#process_ident);
 
         #[allow(clippy::needless_borrow)]
-        pub fn #process_ident<'a>(
+        pub fn #process_ident<'info>(
             program_id: &arch_program::pubkey::Pubkey,
-            accounts: &'a [arch_program::account::AccountInfo<'a>],
+            accounts: &'info [arch_program::account::AccountInfo<'info>],
             instruction_data: &[u8],
         ) -> Result<(), arch_program::program_error::ProgramError> {
             use arch_program::program_error::ProgramError;

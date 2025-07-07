@@ -1650,7 +1650,6 @@ mod tests {
         UtxoInfo {
             meta: UtxoMeta::from(txid, vout),
             value,
-            anchor: arch_program::pubkey::Pubkey::default(),
             #[cfg(feature = "runes")]
             runes: SingleRuneSet::default(),
             #[cfg(feature = "utxo-consolidation")]
@@ -1687,7 +1686,6 @@ mod tests {
         UtxoInfo {
             meta: UtxoMeta::from(txid, vout),
             value,
-            anchor: arch_program::pubkey::Pubkey::default(),
             #[cfg(feature = "runes")]
             runes,
             #[cfg(feature = "utxo-consolidation")]
@@ -2475,7 +2473,10 @@ mod tests {
             let utxos = vec![UtxoInfo {
                 meta: UtxoMeta::from([0; 32], 0),
                 value: 10_000,
-                ..Default::default()
+                #[cfg(feature = "runes")]
+                runes: SingleRuneSet::default(),
+                #[cfg(feature = "utxo-consolidation")]
+                needs_consolidation: FixedOptionF64::none(),
             }];
 
             let amount = 10_000;
@@ -2497,17 +2498,26 @@ mod tests {
                 UtxoInfo {
                     meta: UtxoMeta::from([0; 32], 0),
                     value: 5_000,
-                    ..Default::default()
+                    #[cfg(feature = "runes")]
+                    runes: SingleRuneSet::default(),
+                    #[cfg(feature = "utxo-consolidation")]
+                    needs_consolidation: FixedOptionF64::none(),
                 },
                 UtxoInfo {
                     meta: UtxoMeta::from([0; 32], 1),
                     value: 8_000,
-                    ..Default::default()
+                    #[cfg(feature = "runes")]
+                    runes: SingleRuneSet::default(),
+                    #[cfg(feature = "utxo-consolidation")]
+                    needs_consolidation: FixedOptionF64::none(),
                 },
                 UtxoInfo {
                     meta: UtxoMeta::from([0; 32], 2),
                     value: 12_000,
-                    ..Default::default()
+                    #[cfg(feature = "runes")]
+                    runes: SingleRuneSet::default(),
+                    #[cfg(feature = "utxo-consolidation")]
+                    needs_consolidation: FixedOptionF64::none(),
                 },
             ];
 
@@ -2532,19 +2542,26 @@ mod tests {
                 UtxoInfo {
                     meta: UtxoMeta::from([0; 32], 0),
                     value: 5_000,
-                    ..Default::default()
+                    #[cfg(feature = "runes")]
+                    runes: SingleRuneSet::default(),
+                    #[cfg(feature = "utxo-consolidation")]
+                    needs_consolidation: FixedOptionF64::none(),
                 },
                 UtxoInfo {
                     meta: UtxoMeta::from([0; 32], 1),
                     value: 8_000,
+                    #[cfg(feature = "runes")]
+                    runes: SingleRuneSet::default(),
+                    #[cfg(feature = "utxo-consolidation")]
                     needs_consolidation: FixedOptionF64::some(1.0),
-                    ..Default::default()
                 },
                 UtxoInfo {
                     meta: UtxoMeta::from([0; 32], 2),
                     value: 12_000,
+                    #[cfg(feature = "runes")]
+                    runes: SingleRuneSet::default(),
+                    #[cfg(feature = "utxo-consolidation")]
                     needs_consolidation: FixedOptionF64::some(1.0),
-                    ..Default::default()
                 },
             ];
 

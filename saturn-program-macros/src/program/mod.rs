@@ -4,6 +4,7 @@ use quote::quote;
 mod analysis;
 mod attr;
 mod dispatcher;
+pub(crate) mod id;
 
 /// Entry point invoked by `lib.rs`.
 /// Delegates to smaller, testable helpers located in the sibling modules.

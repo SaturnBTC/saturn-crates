@@ -1,4 +1,3 @@
-use arch_program::account::AccountInfo;
 use borsh::{BorshDeserialize, BorshSerialize};
 use saturn_account_macros::Accounts;
 use saturn_account_parser::codec::BorshAccount;
@@ -15,21 +14,26 @@ mod instruction {
     use super::*;
     #[derive(BorshSerialize, BorshDeserialize)]
     pub enum Instr {
-        MyHandler(u8),
+        FooHandler(u8),
     }
 }
-use instruction::Instr;
 
 #[saturn_program(instruction = "crate::instruction::Instr")]
 mod handlers {
     use super::*;
-    pub fn my_handler<'info>(
-        ctx: &mut Context<'_, '_, '_, 'info, DummyAccounts<'info>>,
+    pub fn foo_handler<'info>(
+        _ctx: &mut Context<'_, '_, '_, 'info, DummyAccounts<'info>>,
         _params: u8,
     ) -> Result<(), arch_program::program_error::ProgramError> {
-        let _ = ctx.program_id; // access something to avoid warnings
+        Ok(())
+    }
+
+    pub fn fooHandler<'info>(
+        _ctx: &mut Context<'_, '_, '_, 'info, DummyAccounts<'info>>,
+        _params: u8,
+    ) -> Result<(), arch_program::program_error::ProgramError> {
         Ok(())
     }
 }
 
-fn main() {}
+fn main() {} 

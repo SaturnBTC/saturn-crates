@@ -14,17 +14,17 @@ pub use tx_builder::TxBuilderWrapper;
 ///
 /// It is generic over the `Accounts` implementation to keep the same ergonomics
 /// as Anchor while staying flexible for Saturn programs.
-pub struct Context<'info, T: Accounts<'info>, TxBuilder = ()> {
+pub struct Context<'a, 'b, 'c, 'info, T: Accounts<'info>, TxBuilder = ()> {
     /// Public key of the program that is currently executing.
-    pub program_id: &'info Pubkey,
+    pub program_id: &'a Pubkey,
 
     /// A **typed view** over the instruction's accounts (the struct that
     /// derives `Accounts`).
-    pub accounts: &'info mut T,
+    pub accounts: &'b mut T,
 
     /// Any extra accounts that were supplied but not listed in the `Accounts`
     /// struct.
-    pub remaining_accounts: &'info [AccountInfo<'info>],
+    pub remaining_accounts: &'c [AccountInfo<'info>],
 
     /// Optional Bitcoin transaction builder available when the program opts-in
     /// via the `bitcoin_transaction` attribute flag.
@@ -32,12 +32,12 @@ pub struct Context<'info, T: Accounts<'info>, TxBuilder = ()> {
 }
 
 // Convenience constructors
-impl<'info, T: Accounts<'info>> Context<'info, T> {
+impl<'a, 'b, 'c, 'info, T: Accounts<'info>> Context<'a, 'b, 'c, 'info, T> {
     /// Same fields as before – no Bitcoin builder.
     pub fn new_simple(
-        program_id: &'info Pubkey,
-        accounts: &'info mut T,
-        remaining_accounts: &'info [AccountInfo<'info>],
+        program_id: &'a Pubkey,
+        accounts: &'b mut T,
+        remaining_accounts: &'c [AccountInfo<'info>],
     ) -> Self {
         Self {
             program_id,
@@ -48,12 +48,12 @@ impl<'info, T: Accounts<'info>> Context<'info, T> {
     }
 }
 
-impl<'info, T: Accounts<'info>, TxBuilder> Context<'info, T, TxBuilder> {
+impl<'a, 'b, 'c, 'info, T: Accounts<'info>, TxBuilder> Context<'a, 'b, 'c, 'info, T, TxBuilder> {
     /// Constructor used by the macro when a Bitcoin transaction builder is provided.
     pub fn new_with_btc_tx(
-        program_id: &'info Pubkey,
-        accounts: &'info mut T,
-        remaining_accounts: &'info [AccountInfo<'info>],
+        program_id: &'a Pubkey,
+        accounts: &'b mut T,
+        remaining_accounts: &'c [AccountInfo<'info>],
         btc_tx: TxBuilder,
     ) -> Self {
         Self {

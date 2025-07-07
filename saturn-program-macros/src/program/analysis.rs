@@ -65,7 +65,7 @@ pub fn analyze(item: TokenStream) -> Result<AnalysisResult, TokenStream> {
                 errors.push(
                     Error::new_spanned(
                         sig,
-                        "handler must take (&mut InstructionContext<'a>, params)",
+                        "handler must take (&mut Context<'_, Accounts>, params)",
                     )
                     .to_compile_error(),
                 );
@@ -86,20 +86,56 @@ pub fn analyze(item: TokenStream) -> Result<AnalysisResult, TokenStream> {
                                     if let syn::PathArguments::AngleBracketed(gen_args) =
                                         &seg.arguments
                                     {
-                                        if gen_args.args.len() == 2 {
-                                            let second = gen_args.args.iter().nth(1).unwrap();
-                                            if let syn::GenericArgument::Type(Type::Path(
-                                                acc_path,
-                                            )) = second
-                                            {
-                                                Some(acc_path.path.clone())
-                                            } else {
-                                                errors.push(Error::new_spanned(second, "expected accounts type in Context<'_, Accounts>").to_compile_error());
+                                        // ---------------------------------------------------------------------------------
+                                        // Determine the **accounts** type from the generic arguments of `Context`.
+                                        // Normally this is the *last* type parameter, but when `bitcoin_transaction`
+                                        // is enabled the macro appends a trailing `TxBuilderWrapper<..>` – in that
+                                        // case the accounts type is the **second-last** generic argument.
+                                        // ---------------------------------------------------------------------------------
+                                        {
+                                            // Collect *type* generic arguments (ignore lifetimes / consts).
+                                            let type_args: Vec<&syn::Type> = gen_args
+                                                .args
+                                                .iter()
+                                                .filter_map(|arg| match arg {
+                                                    syn::GenericArgument::Type(ty) => Some(ty),
+                                                    _ => None,
+                                                })
+                                                .collect();
+
+                                            let acc_ty_opt: Option<Path> = if type_args.is_empty() {
+                                                errors.push(Error::new_spanned(gen_args, "`Context` must have a generic parameter for the accounts struct").to_compile_error());
                                                 None
-                                            }
-                                        } else {
-                                            errors.push(Error::new_spanned(gen_args, "`Context` must have exactly two generic parameters: a lifetime and the accounts type").to_compile_error());
-                                            None
+                                            } else {
+                                                // Start from the last type argument.
+                                                let mut idx = type_args.len() - 1;
+
+                                                // If the last argument is a `TxBuilderWrapper<..>` then use the one before it.
+                                                if let syn::Type::Path(tp) = type_args[idx] {
+                                                    if tp
+                                                        .path
+                                                        .segments
+                                                        .last()
+                                                        .map(|s| s.ident == "TxBuilderWrapper")
+                                                        .unwrap_or(false)
+                                                        && idx > 0
+                                                    {
+                                                        idx -= 1;
+                                                    }
+                                                }
+
+                                                match type_args[idx] {
+                                                    syn::Type::Path(acc_path) => {
+                                                        Some(acc_path.path.clone())
+                                                    }
+                                                    other => {
+                                                        errors.push(Error::new_spanned(other, "expected accounts type parameter to be a path").to_compile_error());
+                                                        None
+                                                    }
+                                                }
+                                            };
+
+                                            acc_ty_opt
                                         }
                                     } else {
                                         errors.push(
