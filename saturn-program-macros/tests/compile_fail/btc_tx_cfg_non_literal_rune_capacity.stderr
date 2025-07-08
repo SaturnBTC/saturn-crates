@@ -1,0 +1,5 @@
+error: rune_capacity must be an integer literal
+  --> tests/compile_fail/btc_tx_cfg_non_literal_rune_capacity.rs:12:83
+   |
+12 |     btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1, rune_capacity = "eight")
+   |                                                                                   ^^^^^^^

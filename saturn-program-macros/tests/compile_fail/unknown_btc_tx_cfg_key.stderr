@@ -1,4 +1,4 @@
-error: unknown key inside btc_tx_cfg; expected `max_inputs_to_sign`, `max_modified_accounts`, or `rune_set`
+error: unknown key inside btc_tx_cfg; expected `max_inputs_to_sign`, `max_modified_accounts`, `rune_set`, or `rune_capacity`
   --> tests/compile_fail/unknown_btc_tx_cfg_key.rs:12:16
    |
 12 |     btc_tx_cfg(foo = 1, max_inputs_to_sign = 1, max_modified_accounts = 1)
