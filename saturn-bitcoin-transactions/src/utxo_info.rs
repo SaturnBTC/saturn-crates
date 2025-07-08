@@ -9,13 +9,7 @@ use arch_program::{
 use bytemuck::{Pod, Zeroable};
 use saturn_collections::declare_fixed_array;
 use saturn_collections::declare_fixed_option;
-// `FixedCapacitySet` is required regardless of feature flags so import it unconditionally.
-use saturn_collections::generic::fixed_set::FixedCapacitySet;
-#[cfg(not(feature = "runes"))]
-use saturn_collections::generic::fixed_set::FixedSetError;
-// `FixedSet` is only needed when the `runes` feature is enabled.
-#[cfg(feature = "runes")]
-use saturn_collections::generic::fixed_set::FixedSet;
+use saturn_collections::generic::fixed_set::{FixedCapacitySet, FixedSet};
 
 use crate::{bytes::txid_to_bytes_big_endian, error::BitcoinTxError};
 
@@ -62,11 +56,7 @@ declare_fixed_option!(FixedOptionF64, f64, 7);
 pub type SingleRuneSet = FixedSet<RuneAmount, 1>;
 
 #[cfg(not(feature = "runes"))]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct EmptyRuneSet;
-
-#[cfg(not(feature = "runes"))]
-pub type SingleRuneSet = EmptyRuneSet;
+pub type SingleRuneSet = FixedSet<RuneAmount, 0>;
 
 #[repr(C, align(8))]
 #[derive(Clone, Copy, Debug)]
@@ -216,7 +206,7 @@ where
 
 // When the "runes" feature is disabled, fallback implementation without rune handling.
 #[cfg(not(feature = "runes"))]
-impl TryFrom<&UtxoMeta> for UtxoInfo<EmptyRuneSet> {
+impl TryFrom<&UtxoMeta> for UtxoInfo<SingleRuneSet> {
     type Error = ProgramError;
 
     fn try_from(value: &UtxoMeta) -> std::result::Result<Self, ProgramError> {
@@ -233,7 +223,7 @@ impl TryFrom<&UtxoMeta> for UtxoInfo<EmptyRuneSet> {
             value: ui_value,
             #[cfg(feature = "utxo-consolidation")]
             needs_consolidation: FixedOptionF64::none(),
-            _phantom: std::marker::PhantomData::<EmptyRuneSet>,
+            _phantom: std::marker::PhantomData::<SingleRuneSet>,
         })
     }
 }
@@ -280,108 +270,3 @@ where
         self.rune_amount(rune_id) == Some(amount)
     }
 }
-
-#[cfg(not(feature = "runes"))]
-impl UtxoInfo<EmptyRuneSet> {
-    /// Always returns 0 because rune support is disabled at compile time.
-    pub fn rune_entry_count(&self) -> usize {
-        0
-    }
-
-    /// Always returns 0 because rune support is disabled at compile time.
-    pub fn total_rune_amount(&self) -> u128 {
-        0
-    }
-
-    /// Always returns `None` because rune support is disabled at compile time.
-    pub fn rune_amount(&self, _rune_id: &arch_program::rune::RuneId) -> Option<u128> {
-        None
-    }
-
-    /// Always returns `false` because rune support is disabled at compile time.
-    pub fn contains_exact_rune(
-        &self,
-        _rune_id: &arch_program::rune::RuneId,
-        _amount: u128,
-    ) -> bool {
-        false
-    }
-}
-
-// Provide a no-op FixedCapacitySet implementation for the unit type when rune support is disabled.
-#[cfg(not(feature = "runes"))]
-impl FixedCapacitySet for EmptyRuneSet {
-    type Item = RuneAmount;
-
-    #[inline]
-    fn capacity(&self) -> usize {
-        0
-    }
-
-    #[inline]
-    fn len(&self) -> usize {
-        0
-    }
-
-    #[inline]
-    fn contains<Q>(&self, _item: &Q) -> bool
-    where
-        Self::Item: PartialEq<Q>,
-    {
-        false
-    }
-
-    #[inline]
-    fn find<Q>(&self, _item: &Q) -> Option<&Self::Item>
-    where
-        Self::Item: PartialEq<Q>,
-    {
-        None
-    }
-
-    #[inline]
-    fn find_mut<Q>(&mut self, _item: &Q) -> Option<&mut Self::Item>
-    where
-        Self::Item: PartialEq<Q>,
-    {
-        None
-    }
-
-    #[inline]
-    fn insert(&mut self, _item: Self::Item) -> Result<(), FixedSetError> {
-        Err(FixedSetError::Full)
-    }
-
-    #[inline]
-    fn insert_or_modify<E, F>(&mut self, _item: Self::Item, _modify: F) -> Result<(), E>
-    where
-        F: FnMut(&mut Self::Item) -> Result<(), E>,
-        E: From<FixedSetError>,
-    {
-        Err(FixedSetError::Full.into())
-    }
-
-    #[inline]
-    fn remove<Q>(&mut self, _item: &Q) -> Option<Self::Item>
-    where
-        Self::Item: PartialEq<Q>,
-    {
-        None
-    }
-
-    #[inline]
-    fn as_slice(&self) -> &[Self::Item] {
-        &[]
-    }
-
-    #[inline]
-    fn as_mut_slice(&mut self) -> &mut [Self::Item] {
-        &mut []
-    }
-}
-
-#[cfg(not(feature = "runes"))]
-unsafe impl Pod for EmptyRuneSet {}
-
-#[cfg(not(feature = "runes"))]
-unsafe impl Zeroable for EmptyRuneSet {}
