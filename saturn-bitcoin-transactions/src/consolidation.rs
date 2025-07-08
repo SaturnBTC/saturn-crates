@@ -19,7 +19,7 @@ use crate::{
 #[cfg(feature = "utxo-consolidation")]
 pub fn add_consolidation_utxos<RS, T, C>(
     transaction: &mut Transaction,
-    tx_statuses: &mut MempoolInfo,
+    _tx_statuses: &mut MempoolInfo,
     inputs_to_sign: &mut C,
     pool_pubkey: &Pubkey,
     pool_shard_btc_utxos: &[T],
@@ -131,7 +131,8 @@ pub fn safe_add_input_to_transaction<C: PushPopCollection<InputToSign>>(
         transaction,
         inputs_to_sign,
         new_potential_inputs_and_outputs,
-    );
+    )
+    .map_err(|_| BitcoinTxError::InputToSignListFull)?;
 
     if total_size > MAX_BTC_TX_SIZE {
         inputs_to_sign.pop();
@@ -155,7 +156,8 @@ pub fn safe_add_output_to_transaction(
         transaction,
         inputs_to_sign,
         new_potential_inputs_and_outputs,
-    );
+    )
+    .map_err(|_| BitcoinTxError::InputToSignListFull)?;
 
     if total_size > MAX_BTC_TX_SIZE {
         transaction.output.pop();
@@ -169,8 +171,9 @@ pub fn safe_add_output_to_transaction(
 #[cfg(feature = "utxo-consolidation")]
 mod tests {
     use crate::{
-        input_calc::ARCH_INPUT_SIZE, utxo_info::SingleRuneSet, NewPotentialInputAmount,
-        NewPotentialOutputAmount,
+        input_calc::ARCH_INPUT_SIZE,
+        utxo_info::{SingleRuneSet, UtxoInfoTrait},
+        NewPotentialInputAmount, NewPotentialOutputAmount,
     };
 
     #[cfg(feature = "utxo-consolidation")]
@@ -221,17 +224,12 @@ mod tests {
         value: u64,
         needs_consolidation: Option<f64>,
     ) -> UtxoInfo<SingleRuneSet> {
-        UtxoInfo {
-            meta: UtxoMeta::from(txid, vout),
-            value,
-            #[cfg(feature = "utxo-consolidation")]
-            needs_consolidation: if let Some(fee_rate) = needs_consolidation {
-                FixedOptionF64::some(fee_rate)
-            } else {
-                FixedOptionF64::none()
-            },
-            ..Default::default()
+        let mut utxo = UtxoInfo::new(UtxoMeta::from(txid, vout), value);
+        if let Some(fee_rate) = needs_consolidation {
+            *utxo.needs_consolidation_mut() = FixedOptionF64::some(fee_rate);
         }
+
+        utxo
     }
 
     #[derive(Debug, Default)]

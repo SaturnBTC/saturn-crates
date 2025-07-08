@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Expr, ExprPath, Generics, Ident, Index, Lifetime};
+use syn::{Expr, ExprPath, Generics, Ident, Lifetime};
 
 use crate::model::{FieldCfg, FieldKind};
 
@@ -169,8 +169,6 @@ fn generate_field_binding(cfg: &FieldCfg, field_idx: usize, fields: &[FieldCfg])
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use insta::assert_snapshot;
     use syn::{parse_quote, Data, DeriveInput, Fields};
 
     fn extract_named_fields(

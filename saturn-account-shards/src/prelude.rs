@@ -3,36 +3,30 @@
 //! Import this as `use saturn_account_shards::prelude::*` to gain the
 //! user-friendly façade without pulling in the full type machinery.
 
-use crate::{
-    shard_set::{Selected, Unselected},
-    ShardSet,
-};
-use saturn_bitcoin_transactions::utxo_info::UtxoInfoTrait;
-use saturn_collections::generic::fixed_set::FixedCapacitySet;
+use crate::shard_set::{Selected, ShardSet, Unselected};
+use bytemuck::{Pod, Zeroable};
+use saturn_account_parser::codec::zero_copy::AccountLoader;
 
 /// Convenience alias for an **unselected** `ShardSet` in which the typestate
 /// parameter is hidden.
-pub type Shards<'a, RuneSet, U, S, const MAX_SELECTED_SHARDS: usize> =
-    ShardSet<'a, RuneSet, U, S, MAX_SELECTED_SHARDS, Unselected>;
+pub type Shards<'info, S, const MAX_SELECTED_SHARDS: usize> =
+    ShardSet<'info, S, MAX_SELECTED_SHARDS, Unselected>;
 
 /// Convenience alias for a `ShardSet` that already carries an active shard
 /// selection.
-pub type SelectedShards<'a, RuneSet, U, S, const MAX_SELECTED_SHARDS: usize> =
-    ShardSet<'a, RuneSet, U, S, MAX_SELECTED_SHARDS, Selected>;
+pub type SelectedShards<'info, S, const MAX_SELECTED_SHARDS: usize> =
+    ShardSet<'info, S, MAX_SELECTED_SHARDS, Selected>;
 
 /// Allows constructing a `ShardSet` via `slice.into()` instead of calling
 /// `ShardSet::new(slice)` explicitly.
-impl<
-        'a,
-        RuneSet: FixedCapacitySet<Item = arch_program::rune::RuneAmount> + Default,
-        U: UtxoInfoTrait<RuneSet>,
-        S: crate::shard::StateShard<U, RuneSet>,
-        const MAX_SELECTED_SHARDS: usize,
-    > From<&'a mut [&'a mut S]> for ShardSet<'a, RuneSet, U, S, MAX_SELECTED_SHARDS, Unselected>
+impl<'info, S, const MAX_SELECTED_SHARDS: usize> From<&'info [&'info AccountLoader<'info, S>]>
+    for ShardSet<'info, S, MAX_SELECTED_SHARDS, Unselected>
+where
+    S: Pod + Zeroable + 'static,
 {
     #[inline]
-    fn from(slice: &'a mut [&'a mut S]) -> Self {
-        ShardSet::new(slice)
+    fn from(slice: &'info [&'info AccountLoader<'info, S>]) -> Self {
+        ShardSet::from_loaders(slice)
     }
 }
 
@@ -51,9 +45,11 @@ impl<
 /// ```
 #[macro_export]
 macro_rules! with_selected_shards {
-    ($max:expr, $shards:expr, $spec:expr => $body:block) => {{
-        #[allow(unused_mut)]
-        let mut set = $crate::ShardSet::<_, _, $max>::new($shards).select_with($spec);
+    ($max:expr, $loaders:expr, $spec:expr => $body:block) => {{
+        let unselected = $crate::ShardSet::<_, $max>::from_loaders($loaders);
+        let mut set = unselected
+            .select_with($spec)
+            .expect("invalid shard selection");
         let result = { $body };
         result
     }};

@@ -43,17 +43,13 @@ pub(crate) fn generate_mempool_info<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utxo_info::SingleRuneSet;
+    use crate::utxo_info::{SingleRuneSet, UtxoInfoTrait};
     use arch_program::utxo::UtxoMeta;
     use mempool_oracle_sdk::{AccountMempoolInfo, MempoolData, MempoolInfo};
 
     /// Convenience helper to construct a mock `UtxoInfo` with the desired txid/vout.
     fn make_utxo(txid: [u8; 32], vout: u32) -> UtxoInfo<SingleRuneSet> {
-        UtxoInfo {
-            meta: UtxoMeta::from(txid, vout),
-            value: 0,
-            ..Default::default()
-        }
+        UtxoInfo::new(UtxoMeta::from(txid, vout), 0)
     }
 
     #[test]

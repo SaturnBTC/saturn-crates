@@ -17,3 +17,10 @@ bytemuck = { workspace = true }
 saturn-bitcoin-transactions = { workspace = true }
 trybuild = { workspace = true }
 arch_program = { workspace = true }
+saturn-account-parser = { workspace = true }
+
+[features]
+# No default features for the proc-macro crate itself.
+default = []
+# Compile-time flag allowing extra rune-specific test cases.
+runes = []

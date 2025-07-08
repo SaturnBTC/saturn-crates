@@ -1,3 +1,13 @@
+//! Borsh codec and Anchor-style account wrapper.
+//!
+//! This module exposes [`BorshCodec`] for low-level (de)serialization and
+//! [`Account`] / [`BorshAccount`] for ergonomic access similar to Anchor's
+//! `Account<'info, T>` type.
+//!
+//! The codec copies data to and from the account buffer, making it suitable
+//! for types that implement [`BorshSerialize`] + [`BorshDeserialize`] but do
+//! not need the absolute maximum performance of the zero-copy variant.
+
 use arch_program::account::AccountInfo;
 use arch_program::program_error::ProgramError;
 use borsh::{BorshDeserialize, BorshSerialize};

@@ -1,11 +1,15 @@
-# StateShard Derive Macro
+# ShardAccount Derive Macro
 
-This crate provides the `#[derive(StateShard)]` macro for automatically generating implementations of the `StateShard` trait, which manages Bitcoin and Rune UTXO collections in on-chain account state.
+This crate provides the `#[derive(ShardAccount)]` macro.  It generates:
+1. A full `impl StateShard<…>`
+2. `unsafe impl bytemuck::Zeroable` and `Pod` for zero-copy access.
+
+With a single derive you get both the runtime logic and the POD guarantees required for account data.
 
 ## Quick Start
 
 ```rust
-use saturn_account_shards_derive::StateShard;
+use saturn_account_shards_derive::ShardAccount;
 use saturn_account_shards::declare_shard_utxo_types;
 
 // First, declare the UTXO collection types
@@ -17,8 +21,8 @@ declare_shard_utxo_types!(
     15                // Padding for alignment
 );
 
-// Then derive StateShard on your struct
-#[derive(StateShard)]
+// Then derive ShardAccount on your struct
+#[derive(ShardAccount)]
 #[repr(C)]
 pub struct MyPool {
     pub pool_id: u64,
@@ -56,9 +60,9 @@ declare_shard_utxo_types!(
 ### Step 2: Define Your Struct
 
 ```rust
-use saturn_account_shards_derive::StateShard;
+use saturn_account_shards_derive::ShardAccount;
 
-#[derive(StateShard)]
+#[derive(ShardAccount)]
 #[repr(C)]
 pub struct LiquidityPool {
     // Your custom fields
@@ -100,7 +104,7 @@ pool.clear_rune_utxo();
 You can customize field names and types using the `#[shard]` attribute:
 
 ```rust
-#[derive(StateShard)]
+#[derive(ShardAccount)]
 #[shard(
     btc_utxos_attr = "bitcoin_utxos",
     rune_utxo_attr = "rune_utxo_data",
@@ -149,7 +153,7 @@ The `StateShard` trait provides these methods for UTXO management:
 ## Complete Example
 
 ```rust
-use saturn_account_shards_derive::StateShard;
+use saturn_account_shards_derive::ShardAccount;
 use saturn_account_shards::declare_shard_utxo_types;
 use saturn_bitcoin_transactions::utxo_info::{UtxoInfo, SingleRuneSet};
 
@@ -162,7 +166,7 @@ declare_shard_utxo_types!(
     15    // Padding for alignment
 );
 
-#[derive(StateShard)]
+#[derive(ShardAccount)]
 #[repr(C)]
 pub struct Exchange {
     pub exchange_id: u64,

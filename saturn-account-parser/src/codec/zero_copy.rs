@@ -1,3 +1,14 @@
+//! Zero-copy codec and account loader.
+//!
+//! Unlike the Borsh codec, zero-copy access reinterprets the raw account
+//! buffer as a Plain-Old-Data (`Pod`) struct without performing any heap
+//! allocation or copy.  This provides maximum throughput at the cost of
+//! stricter type and alignment requirements.
+//!
+//! The primary entry points are [`ZeroCopyCodec`] for bare loading/storing and
+//! [`AccountLoader`] / [`ZeroCopyAccount`] for an Anchor-style wrapper that
+//! tracks borrows at runtime.
+
 use arch_program::account::AccountInfo;
 use arch_program::program_error::ProgramError;
 use bytemuck::{Pod, Zeroable};
@@ -43,7 +54,7 @@ impl ZeroCopyCodec {
     where
         S: Pod + Zeroable + 'static,
     {
-        let mut data = account.try_borrow_mut_data()?;
+        let data = account.try_borrow_mut_data()?;
 
         if data.len() < size_of::<S>() {
             return Err(ProgramError::InvalidAccountData);

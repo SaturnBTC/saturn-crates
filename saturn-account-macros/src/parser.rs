@@ -35,6 +35,7 @@ pub fn parse_fields(
             is_init_if_needed: false,
             base_ty: syn::parse_quote! { () },
             space: None,
+            of_type: None,
         };
 
         // Detect if the field is a reference slice `&[AccountInfo<'_>]`.
@@ -92,6 +93,12 @@ pub fn parse_fields(
                         cfg.payer = Some(expr);
                     } else if meta.path.is_ident("shards") {
                         cfg.is_shards = true;
+                    } else if meta.path.is_ident("of") {
+                        let ty: syn::Type = meta.value()?.parse()?;
+                        if cfg.of_type.is_some() {
+                            return Err(meta.error("duplicate `of` attribute"));
+                        }
+                        cfg.of_type = Some(ty);
                     } else if meta.path.is_ident("zero_copy") {
                         cfg.is_zero_copy = true;
                     } else if meta.path.is_ident("init_if_needed") {
@@ -343,8 +350,9 @@ pub fn parse_fields(
                 ));
             };
 
-            // If the element itself is an AccountLoader/ZeroCopyAccount wrapper, extract its inner generic type
-            let wrapper_idents = ["ZeroCopyAccount", "AccountLoader"];
+            // If the element itself is a known wrapper (e.g., AccountLoader/ZeroCopyAccount/ShardHandle),
+            // extract its inner generic type so the logical element type can be compared against `of = ...`.
+            let wrapper_idents = ["ZeroCopyAccount", "AccountLoader", "ShardHandle"];
             let unwrapped_element_ty = if let syn::Type::Path(type_path) = &element_ty {
                 if let Some(last) = type_path.path.segments.last() {
                     if wrapper_idents.contains(&last.ident.to_string().as_str()) {
@@ -383,7 +391,24 @@ pub fn parse_fields(
                 quote::quote! { #unwrapped_element_ty },
             );
             // Ensure base_ty is set to the logical element type so downstream checks work.
-            cfg.base_ty = unwrapped_element_ty;
+            cfg.base_ty = unwrapped_element_ty.clone();
+
+            // Validate that `of = Type` (if provided) matches the element type we deduced.
+            if let Some(ref of_ty) = cfg.of_type {
+                let wanted = quote::quote! { #of_ty }.to_string().replace(' ', "");
+                let actual = quote::quote! { #unwrapped_element_ty }
+                    .to_string()
+                    .replace(' ', "");
+                if wanted != actual {
+                    return Err(syn::Error::new(
+                        field.span(),
+                        format!(
+                            "`of` type `{}` does not match element type `{}` of the Vec",
+                            wanted, actual
+                        ),
+                    ));
+                }
+            }
         } else if is_slice_type {
             let len_expr = slice_len_expr.ok_or_else(|| {
                 syn::Error::new(

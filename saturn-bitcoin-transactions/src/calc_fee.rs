@@ -3,7 +3,7 @@ use std::cmp::min;
 use arch_program::input_to_sign::InputToSign;
 use bitcoin::{Amount, ScriptBuf, Transaction, TxOut};
 use mempool_oracle_sdk::MempoolInfo;
-use saturn_collections::generic::push_pop::PushPopCollection;
+use saturn_collections::generic::push_pop::{PushPopCollection, PushPopError};
 use saturn_safe_math::{safe_add, safe_sub};
 
 use crate::{
@@ -33,7 +33,7 @@ pub(crate) fn estimate_final_tx_vsize(
 }
 
 pub(crate) fn calculate_fees_for_transaction(
-    remaining_btc: u64,
+    _remaining_btc: u64,
     transaction: &mut Transaction,
     inputs_to_sign: &[InputToSign],
     total_size_of_pending_utxos: usize,
@@ -138,12 +138,13 @@ pub fn estimate_tx_size_with_additional_inputs_outputs<C: PushPopCollection<Inpu
     transaction: &mut Transaction,
     inputs_to_sign: &mut C,
     new_potential_inputs_and_outputs: &NewPotentialInputsAndOutputs,
-) -> usize {
+) -> Result<usize, BitcoinTxError> {
     add_reserved_inputs_and_outputs(
         transaction,
         inputs_to_sign,
         new_potential_inputs_and_outputs,
-    );
+    )
+    .map_err(|_| BitcoinTxError::InputToSignListFull)?;
 
     let total_size = estimate_final_tx_total_size(transaction, inputs_to_sign.as_slice());
 
@@ -153,19 +154,20 @@ pub fn estimate_tx_size_with_additional_inputs_outputs<C: PushPopCollection<Inpu
         new_potential_inputs_and_outputs,
     );
 
-    total_size
+    Ok(total_size)
 }
 
 pub fn estimate_tx_vsize_with_additional_inputs_outputs<C: PushPopCollection<InputToSign>>(
     transaction: &mut Transaction,
     inputs_to_sign: &mut C,
     new_potential_inputs_and_outputs: &NewPotentialInputsAndOutputs,
-) -> usize {
+) -> Result<usize, BitcoinTxError> {
     add_reserved_inputs_and_outputs(
         transaction,
         inputs_to_sign,
         new_potential_inputs_and_outputs,
-    );
+    )
+    .map_err(|_| BitcoinTxError::InputToSignListFull)?;
 
     let total_vsize = estimate_final_tx_vsize(transaction, inputs_to_sign.as_slice());
 
@@ -175,14 +177,14 @@ pub fn estimate_tx_vsize_with_additional_inputs_outputs<C: PushPopCollection<Inp
         new_potential_inputs_and_outputs,
     );
 
-    total_vsize
+    Ok(total_vsize)
 }
 
 fn add_reserved_inputs_and_outputs<C: PushPopCollection<InputToSign>>(
     transaction: &mut Transaction,
     inputs_to_sign: &mut C,
     new_potential_inputs_and_outputs: &NewPotentialInputsAndOutputs,
-) {
+) -> Result<(), PushPopError> {
     if let Some(NewPotentialInputAmount {
         count,
         ref item,
@@ -198,7 +200,7 @@ fn add_reserved_inputs_and_outputs<C: PushPopCollection<InputToSign>>(
                 inputs_to_sign.push(InputToSign {
                     index: (initial_input_len + i) as u32,
                     signer,
-                });
+                })?;
             }
 
             transaction.input.push(item.clone());
@@ -211,6 +213,8 @@ fn add_reserved_inputs_and_outputs<C: PushPopCollection<InputToSign>>(
             transaction.output.push(item.clone());
         }
     }
+
+    Ok(())
 }
 
 fn rollback_potential_inputs_and_outputs<C: PushPopCollection<InputToSign>>(
@@ -247,15 +251,11 @@ fn rollback_potential_inputs_and_outputs<C: PushPopCollection<InputToSign>>(
 mod tests {
     use crate::{
         input_calc::{CONTROL_BLOCK_SIZE, REDEEM_SCRIPT_SIZE},
-        utxo_info::UtxoInfo,
         NewPotentialInputAmount, NewPotentialOutputAmount,
     };
 
-    #[cfg(feature = "utxo-consolidation")]
-    use crate::utxo_info::FixedOptionF64;
-
     use super::*;
-    use arch_program::{pubkey::Pubkey, utxo::UtxoMeta};
+    use arch_program::pubkey::Pubkey;
     use bitcoin::{
         absolute::LockTime, key::constants::SCHNORR_SIGNATURE_SIZE, transaction::Version, Address,
         Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness,
@@ -733,7 +733,7 @@ mod tests {
         transaction.output.push(create_mock_tx_out(50_000));
 
         let inputs_to_sign: Vec<InputToSign> = Vec::new();
-        let mut tx_statuses = MempoolInfo {
+        let tx_statuses = MempoolInfo {
             total_fee: 0,
             total_size: 0,
         };
@@ -791,12 +791,15 @@ mod tests {
             &mut transaction,
             &mut inputs_to_sign,
             &new_potential,
-        );
+        )
+        .unwrap();
+
         let est_vsize = super::estimate_tx_vsize_with_additional_inputs_outputs(
             &mut transaction,
             &mut inputs_to_sign,
             &new_potential,
-        );
+        )
+        .unwrap();
 
         // The estimates must be strictly greater than the baseline
         assert!(est_total_size > base_total_size);
@@ -980,13 +983,13 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            let estimated_total_size = estimate_final_tx_total_size(&tx, &inputs_to_sign);
+            let _estimated_total_size = estimate_final_tx_total_size(&tx, &inputs_to_sign);
             let estimated_total_vsize = estimate_final_tx_vsize(&tx, &inputs_to_sign);
 
             // Now apply actual fake witness to validate correctness
             add_fake_witness_to_transaction(&mut tx, &inputs_to_sign);
 
-            let final_total_size = tx.total_size();
+            let _final_total_size = tx.total_size();
             let final_total_vsize = tx.vsize();
 
             println!(

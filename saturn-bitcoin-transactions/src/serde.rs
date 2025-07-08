@@ -38,7 +38,7 @@ mod tests {
     #[test]
     fn test_serialize_deserialize_u128() {
         let value: u128 = 123456789012345678901234567890;
-        let json = serde_json::to_string(&value.to_string()).unwrap();
+        let _ = serde_json::to_string(&value.to_string()).unwrap();
 
         #[derive(Serialize, Deserialize)]
         struct Wrapper(
@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn test_serialize_deserialize_u64() {
         let value: u64 = 9876543210;
-        let json = serde_json::to_string(&value.to_string()).unwrap();
+        let _ = serde_json::to_string(&value.to_string()).unwrap();
 
         #[derive(Serialize, Deserialize)]
         struct Wrapper(

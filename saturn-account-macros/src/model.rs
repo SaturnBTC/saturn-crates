@@ -40,4 +40,6 @@ pub struct FieldCfg {
     pub is_init_if_needed: bool,
     pub base_ty: Type,
     pub space: Option<Expr>,
+    /// Optional type specified via `of = MyShard` inside the `#[account(shards)]` attribute.
+    pub of_type: Option<Type>,
 }

@@ -15,6 +15,7 @@ ordinals = { workspace = true }
 bitcoin = { workspace = true }
 saturn-safe-math = { workspace = true }
 saturn-error = { workspace = true }
+saturn-account-parser = { workspace = true }
 
 [features]
 default = ["runes", "utxo-consolidation"]

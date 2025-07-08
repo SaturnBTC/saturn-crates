@@ -1,3 +1,74 @@
+//! # saturn-error-derive
+//!
+//! Attach the attribute to any `enum` that represents your
+//! Solana-compatible error codes and the macro will:
+//!
+//! * Attach `#[repr(u32)]` and derive `Debug`, `Clone`, `Copy`, `PartialEq`, and
+//!   `thiserror::Error`.
+//! * Fill in sequential discriminant values starting from a chosen `offset`
+//!   (default `6000`) for every variant that does **not** already specify one.
+//! * Implement `From<Enum> for u32` as well as
+//!   `From<Enum> for arch_program::program_error::ProgramError` so the enum
+//!   integrates seamlessly with existing Solana-based frameworks.
+//! * Generate an internal implementation of
+//!   `num_traits::FromPrimitive` without adding a public dependency on
+//!   `num_traits`, keeping your public API surface minimal.
+//!
+//! ## Quick start
+//!
+//! ```rust
+//! use saturn_error::saturn_error;
+//!
+//! #[saturn_error(offset = 7000)]
+//! pub enum MyError {
+//!     #[error("Overflow occurred")]
+//!     Overflow,
+//!     #[error("Invalid authority")]
+//!     InvalidAuthority,
+//! }
+//! ```
+//!
+//! After macro expansion `MyError::Overflow as u32 == 7000` and
+//! `MyError::InvalidAuthority as u32 == 7001`.
+//!
+//! ## Attribute syntax
+//!
+//! * `#[saturn_error]` – uses the default offset `6000`.
+//! * `#[saturn_error(offset = N)]` – starts numbering at `N`.
+//!
+//! The macro aborts with a **compile-time** error if:
+//!
+//! * it is applied to anything other than an `enum`, or
+//! * the provided `offset` is not an unsigned integer literal, or
+//! * two variants end up with the same discriminant value.
+//!
+//! ## Reserved ranges
+//!
+//! We recommend allocating each on-chain program (or crate) a unique offset
+//! range in increments of `1000` to prevent collisions. For instance, reserve
+//! `6000–6999` for _Program A_, `7000–7999` for _Program B_, and so on.
+//!
+//! ## Minimum supported Rust version
+//!
+//! This crate is guaranteed to compile on Rust 1.73 and later. New MSRV will be
+//! announced in the changelog and will always follow semantic versioning.
+//!
+//! ## Safety
+//!
+//! This crate is `#![forbid(unsafe_code)]`; it does not use `unsafe` anywhere
+//! in its implementation.
+//!
+//! ## License
+//!
+//! Licensed under either of
+//! * Apache License, Version 2.0,
+//! * MIT license
+//!
+//! at your option.
+#![deny(missing_docs)]
+#![forbid(unsafe_code)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 //! Proc-macro implementation for `#[saturn_error(offset = N)]`.
 //!
 //! The macro rewrites the input enum to:
@@ -29,6 +100,30 @@ impl Parse for Offset {
     }
 }
 
+/// Attribute macro that converts an `enum` into a
+/// Solana-compatible error code set.
+///
+/// See the [crate-level documentation](crate) for detailed semantics and
+/// examples.
+///
+/// # Examples
+///
+/// ```rust
+/// use saturn_error::saturn_error;
+///
+/// #[saturn_error(offset = 42)]
+/// enum MyError {
+///     #[error("Boom")]
+///     Boom,
+/// }
+/// ```
+///
+/// The variant `Boom` then expands to numeric code `42` and implements
+/// `From::<arch_program::program_error::ProgramError>` automatically.
+///
+/// # Panics
+///
+/// This macro aborts compilation with a descriptive error message if mis-used.
 #[proc_macro_attribute]
 pub fn saturn_error(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Default error code offset (mirrors Anchor's 6000).

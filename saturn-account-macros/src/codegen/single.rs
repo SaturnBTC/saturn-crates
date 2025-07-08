@@ -373,7 +373,7 @@ fn generate_single_realloc(
 fn generate_single_default(
     cfg: &FieldCfg,
     ident: &Ident,
-    fetch_account: TokenStream,
+    _fetch_account: TokenStream,
     inner_ty_ts: TokenStream,
     signer_tok: TokenStream,
     writable_tok: TokenStream,

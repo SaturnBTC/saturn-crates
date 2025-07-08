@@ -1,6 +1,6 @@
 use arch_program::{account::AccountInfo, program::get_account_script_pubkey};
 use bitcoin::Transaction;
-use saturn_collections::generic::fixed_list::FixedList;
+use saturn_collections::generic::fixed_list::{FixedList, FixedListError};
 
 /// Get the used shards in a transaction.
 ///
@@ -39,25 +39,25 @@ use saturn_collections::generic::fixed_list::FixedList;
 pub fn get_used_shards_in_transaction<const SIZE: usize>(
     transaction: &Transaction,
     accounts: &[AccountInfo<'static>],
-) -> FixedList<usize, SIZE> {
+) -> Result<FixedList<usize, SIZE>, FixedListError> {
     let mut used_shards = FixedList::<usize, SIZE>::new();
 
     for (index, account) in accounts.iter().enumerate() {
         if account.is_writable {
-            used_shards.push(index);
+            used_shards.push(index)?;
         }
     }
 
-    reorder_accounts_in_transaction(transaction, &mut used_shards, accounts);
+    reorder_accounts_in_transaction(transaction, &mut used_shards, accounts)?;
 
-    used_shards
+    Ok(used_shards)
 }
 
 fn reorder_accounts_in_transaction<const SIZE: usize>(
     transaction: &Transaction,
     account_indexes: &mut FixedList<usize, SIZE>,
     accounts: &[AccountInfo<'static>],
-) {
+) -> Result<(), FixedListError> {
     let mut reordered_account_indexes = FixedList::<usize, SIZE>::new();
 
     // Iterate over transaction outputs and find matching accounts
@@ -73,7 +73,7 @@ fn reorder_accounts_in_transaction<const SIZE: usize>(
 
             // Compare script pubkeys directly without allocating ScriptBuf
             if output.script_pubkey.as_bytes() == account_script_pubkey {
-                reordered_account_indexes.push(*account_index);
+                reordered_account_indexes.push(*account_index)?;
                 break;
             }
         }
@@ -87,4 +87,6 @@ fn reorder_accounts_in_transaction<const SIZE: usize>(
 
     // Replace the original account_indexes with the reordered list
     account_indexes.copy_from_slice(reordered_account_indexes.as_slice());
+
+    Ok(())
 }

@@ -1,6 +1,14 @@
+//! Error types returned by `saturn_account_parser`.
+//!
+//! The numeric representation of each variant is produced by the
+//! `#[saturn_error(offset = 200)]` derive, yielding values in the range
+//! **200–*** to avoid collisions with other `ProgramError::Custom` codes.
+//!
+//! Use the variants via `ProgramError::Custom(ErrorCode::XYZ.into())`.
 use arch_program::program_error::ProgramError;
 use saturn_error::saturn_error;
 
+/// Parser-specific error codes.
 #[saturn_error(offset = 200)]
 pub enum ErrorCode {
     #[error("The provided account's `is_signer` flag does not match the expected value")]

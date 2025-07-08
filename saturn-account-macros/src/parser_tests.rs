@@ -252,4 +252,31 @@ mod parser_tests {
             .iter()
             .any(|c| matches!(c.kind, model::FieldKind::Bump)));
     }
+
+    /// parser accepts `of = MyShard` and validates match
+    #[test]
+    fn parser_accepts_of_param_and_matches_type() {
+        let di: DeriveInput = parse_quote! {
+            struct Test<'info> {
+                #[account(shards, of = MyShard, len = 2)]
+                shards: Vec<saturn_account_shards::ShardHandle<'info, MyShard>>,
+            }
+        };
+        let cfgs = parser::parse_fields(extract_named_fields(&di)).expect("parse ok");
+        assert!(matches!(cfgs[0].kind, model::FieldKind::Shards(..)));
+        assert!(cfgs[0].of_type.is_some());
+    }
+
+    /// parser rejects when `of` mismatches element type
+    #[test]
+    fn parser_rejects_of_param_mismatch() {
+        let di: DeriveInput = parse_quote! {
+            struct Test<'info> {
+                #[account(shards, of = WrongShard, len = 1)]
+                shards: Vec<saturn_account_shards::ShardHandle<'info, RightShard>>,
+            }
+        };
+        let err = parser::parse_fields(extract_named_fields(&di)).unwrap_err();
+        assert!(err.to_string().contains("does not match element type"));
+    }
 }

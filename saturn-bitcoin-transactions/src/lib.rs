@@ -1410,12 +1410,12 @@ impl<
     pub fn estimate_tx_size_with_additional_inputs_outputs(
         &mut self,
         new_potential_inputs_and_outputs: &NewPotentialInputsAndOutputs,
-    ) -> usize {
-        estimate_tx_size_with_additional_inputs_outputs(
+    ) -> Result<usize, BitcoinTxError> {
+        Ok(estimate_tx_size_with_additional_inputs_outputs(
             &mut self.transaction,
             &mut self.inputs_to_sign,
             new_potential_inputs_and_outputs,
-        )
+        )?)
     }
 
     /// Same as [`Self::estimate_tx_size_with_additional_inputs_outputs`] but returns **vsize**
@@ -1423,12 +1423,12 @@ impl<
     pub fn estimate_tx_vsize_with_additional_inputs_outputs(
         &mut self,
         new_potential_inputs_and_outputs: &NewPotentialInputsAndOutputs,
-    ) -> usize {
-        estimate_tx_vsize_with_additional_inputs_outputs(
+    ) -> Result<usize, BitcoinTxError> {
+        Ok(estimate_tx_vsize_with_additional_inputs_outputs(
             &mut self.transaction,
             &mut self.inputs_to_sign,
             new_potential_inputs_and_outputs,
-        )
+        )?)
     }
 
     /// Returns the **aggregate mempool size (bytes) and fees (sats)** of all ancestor
@@ -1624,6 +1624,8 @@ pub fn add_rune_input<RuneSet: FixedCapacitySet<Item = RuneAmount> + Default>(
 
 #[cfg(test)]
 mod tests {
+    use crate::utxo_info::UtxoInfoTrait;
+
     #[cfg(feature = "utxo-consolidation")]
     use crate::utxo_info::FixedOptionF64;
 
@@ -1636,27 +1638,16 @@ mod tests {
     #[allow(unused_macros)]
     macro_rules! new_tb {
         ($max_mod:expr, $max_inputs:expr) => {{
-            #[cfg(feature = "runes")]
-            {
-                TransactionBuilder::<$max_mod, $max_inputs, SingleRuneSet>::new()
-            }
-            #[cfg(not(feature = "runes"))]
-            {
-                TransactionBuilder::<$max_mod, $max_inputs>::new()
-            }
+            // Always specify the `SingleRuneSet` type parameter so the invocation
+            // matches the `TransactionBuilder` definition regardless of whether the
+            // `runes` feature is enabled.
+            TransactionBuilder::<$max_mod, $max_inputs, SingleRuneSet>::new()
         }};
     }
 
     // Helper function to create a mock UtxoInfo
     fn create_mock_utxo(value: u64, txid: [u8; 32], vout: u32) -> UtxoInfo<SingleRuneSet> {
-        UtxoInfo {
-            meta: UtxoMeta::from(txid, vout),
-            value,
-            #[cfg(feature = "runes")]
-            runes: SingleRuneSet::default(),
-            #[cfg(feature = "utxo-consolidation")]
-            needs_consolidation: FixedOptionF64::none(),
-        }
+        UtxoInfo::new(UtxoMeta::from(txid, vout), value)
     }
 
     // Helper function to create a mock UtxoInfo with runes
@@ -1685,14 +1676,14 @@ mod tests {
             }
         };
 
-        UtxoInfo {
-            meta: UtxoMeta::from(txid, vout),
-            value,
-            #[cfg(feature = "runes")]
-            runes,
-            #[cfg(feature = "utxo-consolidation")]
-            needs_consolidation: FixedOptionF64::none(),
+        let mut utxo = UtxoInfo::new(UtxoMeta::from(txid, vout), value);
+
+        #[cfg(feature = "runes")]
+        {
+            utxo.runes = runes;
         }
+
+        utxo
     }
 
     mod new {
@@ -2472,14 +2463,7 @@ mod tests {
 
         #[test]
         fn finds_btc_with_one_utxo() {
-            let utxos = vec![UtxoInfo {
-                meta: UtxoMeta::from([0; 32], 0),
-                value: 10_000,
-                #[cfg(feature = "runes")]
-                runes: SingleRuneSet::default(),
-                #[cfg(feature = "utxo-consolidation")]
-                needs_consolidation: FixedOptionF64::none(),
-            }];
+            let utxos = vec![UtxoInfo::new(UtxoMeta::from([0; 32], 0), 10_000)];
 
             let amount = 10_000;
 
@@ -2497,30 +2481,9 @@ mod tests {
         #[test]
         fn finds_btc_with_multiple_utxos() {
             let utxos = vec![
-                UtxoInfo {
-                    meta: UtxoMeta::from([0; 32], 0),
-                    value: 5_000,
-                    #[cfg(feature = "runes")]
-                    runes: SingleRuneSet::default(),
-                    #[cfg(feature = "utxo-consolidation")]
-                    needs_consolidation: FixedOptionF64::none(),
-                },
-                UtxoInfo {
-                    meta: UtxoMeta::from([0; 32], 1),
-                    value: 8_000,
-                    #[cfg(feature = "runes")]
-                    runes: SingleRuneSet::default(),
-                    #[cfg(feature = "utxo-consolidation")]
-                    needs_consolidation: FixedOptionF64::none(),
-                },
-                UtxoInfo {
-                    meta: UtxoMeta::from([0; 32], 2),
-                    value: 12_000,
-                    #[cfg(feature = "runes")]
-                    runes: SingleRuneSet::default(),
-                    #[cfg(feature = "utxo-consolidation")]
-                    needs_consolidation: FixedOptionF64::none(),
-                },
+                UtxoInfo::new(UtxoMeta::from([0; 32], 0), 5_000),
+                UtxoInfo::new(UtxoMeta::from([0; 32], 1), 8_000),
+                UtxoInfo::new(UtxoMeta::from([0; 32], 2), 12_000),
             ];
 
             let amount = 10_000;
@@ -2540,32 +2503,14 @@ mod tests {
         #[test]
         #[cfg(feature = "utxo-consolidation")]
         fn finds_btc_with_consolidation_utxos() {
-            let utxos = vec![
-                UtxoInfo {
-                    meta: UtxoMeta::from([0; 32], 0),
-                    value: 5_000,
-                    #[cfg(feature = "runes")]
-                    runes: SingleRuneSet::default(),
-                    #[cfg(feature = "utxo-consolidation")]
-                    needs_consolidation: FixedOptionF64::none(),
-                },
-                UtxoInfo {
-                    meta: UtxoMeta::from([0; 32], 1),
-                    value: 8_000,
-                    #[cfg(feature = "runes")]
-                    runes: SingleRuneSet::default(),
-                    #[cfg(feature = "utxo-consolidation")]
-                    needs_consolidation: FixedOptionF64::some(1.0),
-                },
-                UtxoInfo {
-                    meta: UtxoMeta::from([0; 32], 2),
-                    value: 12_000,
-                    #[cfg(feature = "runes")]
-                    runes: SingleRuneSet::default(),
-                    #[cfg(feature = "utxo-consolidation")]
-                    needs_consolidation: FixedOptionF64::some(1.0),
-                },
+            let mut utxos = vec![
+                UtxoInfo::new(UtxoMeta::from([0; 32], 0), 5_000),
+                UtxoInfo::new(UtxoMeta::from([0; 32], 1), 8_000),
+                UtxoInfo::new(UtxoMeta::from([0; 32], 2), 12_000),
             ];
+
+            *utxos[1].needs_consolidation_mut() = FixedOptionF64::some(1.0);
+            *utxos[2].needs_consolidation_mut() = FixedOptionF64::some(1.0);
 
             let amount = 10_000;
 

@@ -1,0 +1,5 @@
+error: Shard struct must be #[repr(C)]
+  --> tests/compile_fail/missing_repr.rs:11:12
+   |
+11 | pub struct BadShard {
+   |            ^^^^^^^^

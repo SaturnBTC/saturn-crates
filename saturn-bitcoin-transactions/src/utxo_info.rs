@@ -1,6 +1,4 @@
-use arch_program::rune::RuneAmount;
-#[cfg(feature = "runes")]
-use arch_program::rune::RuneId;
+use arch_program::rune::{RuneAmount, RuneId};
 
 use arch_program::{
     program::get_bitcoin_tx_output_value, program_error::ProgramError, utxo::UtxoMeta,
@@ -268,5 +266,31 @@ where
     /// identified by `rune_id`.
     pub fn contains_exact_rune(&self, rune_id: &RuneId, amount: u128) -> bool {
         self.rune_amount(rune_id) == Some(amount)
+    }
+}
+
+#[cfg(not(feature = "runes"))]
+impl<RuneSet> UtxoInfo<RuneSet>
+where
+    RuneSet: FixedCapacitySet<Item = RuneAmount>,
+{
+    /// Returns zero because rune information is unavailable when the `runes` feature is disabled.
+    pub fn rune_entry_count(&self) -> usize {
+        0
+    }
+
+    /// Returns zero because rune information is unavailable when the `runes` feature is disabled.
+    pub fn total_rune_amount(&self) -> u128 {
+        0
+    }
+
+    /// Always returns `None` because rune information is unavailable when the `runes` feature is disabled.
+    pub fn rune_amount(&self, _rune_id: &RuneId) -> Option<u128> {
+        None
+    }
+
+    /// Always returns `false` because rune information is unavailable when the `runes` feature is disabled.
+    pub fn contains_exact_rune(&self, _rune_id: &RuneId, _amount: u128) -> bool {
+        false
     }
 }

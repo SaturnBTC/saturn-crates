@@ -168,19 +168,20 @@
 //! ).unwrap();
 //! ```
 
+mod common_loader;
 mod error;
 mod prelude;
 mod shard;
+mod shard_handle;
 mod shard_indices;
 mod shard_set;
-mod split;
-mod update;
-mod utxo_macros;
 
 pub use error::{Result, StateShardError};
 pub use prelude::{SelectedShards, Shards};
 pub use shard::{AccountUtxos, StateShard};
+pub use shard_handle::ShardHandle;
 pub use shard_indices::IntoShardIndices;
 pub use shard_set::ShardSet;
+pub use shard_set::{Selected, Unselected};
 
 pub use saturn_collections::{declare_fixed_array, declare_fixed_option, declare_fixed_set};
