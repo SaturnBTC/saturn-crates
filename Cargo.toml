@@ -4,6 +4,7 @@ members = [
     "saturn-collections",
     "saturn-safe-math",
     "deps/*",
+    "examples/*",
     "saturn-account-macros",
     "saturn-account-parser",
     "saturn-account-shards",
@@ -33,6 +34,7 @@ saturn-utxo-parser = { path = "./saturn-utxo-parser" }
 saturn-utxo-parser-derive = { path = "./saturn-utxo-parser-derive" }
 saturn-account-parser = { path = "./saturn-account-parser" }
 saturn-account-macros = { path = "./saturn-account-macros" }
+saturn-program-macros = { path = "./saturn-program-macros" }
 
 # Saturn unified error handling
 saturn-error = { path = "./saturn-error" }
