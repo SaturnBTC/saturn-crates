@@ -131,8 +131,6 @@ impl<T> PushPopCollection<T> for Vec<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_push_and_len() {
         let mut collection: Vec<i32> = Vec::new();

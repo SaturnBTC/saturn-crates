@@ -332,8 +332,8 @@ mod tests {
     #[test]
     fn test_push_and_len() {
         let mut list = FixedList::<u32, 3>::new();
-        list.push(10);
-        list.push(20);
+        list.push(10).unwrap();
+        list.push(20).unwrap();
         assert_eq!(list.len(), 2);
         assert!(!list.is_empty());
         assert_eq!(list.as_slice(), &[10, 20]);
@@ -342,9 +342,9 @@ mod tests {
     #[test]
     fn test_push_past_capacity() {
         let mut list = FixedList::<u32, 2>::new();
-        list.push(1);
-        list.push(2);
-        list.push(3); // should be ignored
+        list.push(1).unwrap();
+        list.push(2).unwrap();
+        list.push(3).unwrap_err(); // should be ignored
         assert_eq!(list.len(), 2);
         assert_eq!(list.as_slice(), &[1, 2]);
     }
@@ -354,8 +354,8 @@ mod tests {
         let mut list = FixedList::<u32, 2>::new();
         assert_eq!(list.pop(), None);
 
-        list.push(100);
-        list.push(200);
+        list.push(100).unwrap();
+        list.push(200).unwrap();
         assert_eq!(list.pop(), Some(200));
         assert_eq!(list.pop(), Some(100));
         assert_eq!(list.pop(), None);
@@ -365,8 +365,8 @@ mod tests {
     #[test]
     fn test_iter() {
         let mut list = FixedList::<u32, 3>::new();
-        list.push(1);
-        list.push(2);
+        list.push(1).unwrap();
+        list.push(2).unwrap();
         let collected: Vec<_> = list.iter().copied().collect();
         assert_eq!(collected, vec![1, 2]);
     }
@@ -374,8 +374,8 @@ mod tests {
     #[test]
     fn test_iter_mut() {
         let mut list = FixedList::<u32, 3>::new();
-        list.push(1);
-        list.push(2);
+        list.push(1).unwrap();
+        list.push(2).unwrap();
         for x in list.iter_mut() {
             *x *= 10;
         }
@@ -385,8 +385,8 @@ mod tests {
     #[test]
     fn test_as_slice_and_mut_slice() {
         let mut list = FixedList::<u32, 4>::new();
-        list.push(42);
-        list.push(99);
+        list.push(42).unwrap();
+        list.push(99).unwrap();
         let slice = list.as_slice();
         assert_eq!(slice, &[42, 99]);
 
@@ -407,9 +407,9 @@ mod tests {
     #[test]
     fn test_push_pop_collection_trait() {
         let mut list = FixedList::<u8, 2>::new();
-        PushPopCollection::push(&mut list, 1);
-        PushPopCollection::push(&mut list, 2);
-        PushPopCollection::push(&mut list, 3); // should be ignored
+        PushPopCollection::push(&mut list, 1).unwrap();
+        PushPopCollection::push(&mut list, 2).unwrap();
+        PushPopCollection::push(&mut list, 3).unwrap_err(); // should be ignored
         assert_eq!(PushPopCollection::len(&list), 2);
         assert_eq!(PushPopCollection::as_slice(&list), &[1, 2]);
         assert_eq!(PushPopCollection::pop(&mut list), Some(2));
