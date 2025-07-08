@@ -23,7 +23,6 @@ mod instruction {
 
 #[saturn_program(
     instruction = "crate::instruction::Instr",
-    bitcoin_transaction = true,
     btc_tx_cfg(max_inputs_to_sign = 4, max_modified_accounts = 4, rune_set = "crate::instruction::RuneSet")
 )]
 mod handlers {

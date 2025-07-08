@@ -20,7 +20,6 @@ mod instruction {
 
 #[saturn_program(
     instruction = "crate::instruction::Instr",
-    bitcoin_transaction = true,
     btc_tx_cfg(max_inputs_to_sign = 4, max_modified_accounts = 4)
 )]
 mod handlers {
@@ -30,7 +29,7 @@ mod handlers {
         ctx: &mut Context<'info, DummyAccounts<'info>>,
         _params: u8,
     ) -> Result<(), arch_program::program_error::ProgramError> {
-        // Access BTC builder to ensure it is available when bitcoin_transaction = true
+        // Access BTC builder to ensure it is available when `btc_tx_cfg` is present
         let _ = &ctx.btc_tx;
         let _ = ctx.program_id;
         Ok(())

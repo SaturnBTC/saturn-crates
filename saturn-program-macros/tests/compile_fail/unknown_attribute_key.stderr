@@ -1,4 +1,4 @@
-error: unknown attribute key; expected `instruction`, `bitcoin_transaction`, or `btc_tx_cfg`
+error: unknown attribute key; expected `instruction` or `btc_tx_cfg`
   --> tests/compile_fail/unknown_attribute_key.rs:10:18
    |
 10 | #[saturn_program(foo = 1, instruction = "crate::instruction::Instr")]

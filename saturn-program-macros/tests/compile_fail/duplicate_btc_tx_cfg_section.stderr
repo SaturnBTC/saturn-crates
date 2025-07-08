@@ -1,5 +1,5 @@
 error: duplicate `btc_tx_cfg` section
-  --> tests/compile_fail/duplicate_btc_tx_cfg_section.rs:14:5
+  --> tests/compile_fail/duplicate_btc_tx_cfg_section.rs:13:5
    |
-14 |     btc_tx_cfg(max_inputs_to_sign = 2, max_modified_accounts = 2)
+13 |     btc_tx_cfg(max_inputs_to_sign = 2, max_modified_accounts = 2)
    |     ^^^^^^^^^^

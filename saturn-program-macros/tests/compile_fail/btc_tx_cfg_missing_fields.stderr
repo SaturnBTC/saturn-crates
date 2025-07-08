@@ -1,11 +1,10 @@
-error: `btc_tx_cfg` must specify `max_modified_accounts` when bitcoin_transaction is true
+error: `btc_tx_cfg` must specify `max_modified_accounts`
   --> tests/compile_fail/btc_tx_cfg_missing_fields.rs:10:1
    |
 10 | / #[saturn_program(
 11 | |     instruction = "crate::instruction::Instr",
-12 | |     bitcoin_transaction = true,
-13 | |     btc_tx_cfg(max_inputs_to_sign = 2) // missing max_modified_accounts
-14 | | )]
+12 | |     btc_tx_cfg(max_inputs_to_sign = 2) // missing max_modified_accounts
+13 | | )]
    | |__^
    |
    = note: this error originates in the attribute macro `saturn_program` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -14,6 +14,9 @@ pub struct BtcTxCfg {
 #[derive(Clone)]
 pub struct AttrConfig {
     pub instruction_path: Path,
+    /// If `true`, the generated program will include Bitcoin transaction builder logic.
+    /// This is now inferred from the presence of a `btc_tx_cfg(..)` section rather than
+    /// an explicit `bitcoin_transaction` flag.
     pub enable_bitcoin_tx: bool,
     pub btc_tx_cfg: BtcTxCfg,
 }
@@ -36,50 +39,16 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
     };
 
     let mut instruction_path: Option<Path> = None;
-    let mut enable_bitcoin_tx: bool = false;
     let mut btc_tx_cfg: BtcTxCfg = BtcTxCfg::default();
 
-    // First pass: detect `bitcoin_transaction = bool`
-    let mut bitcoin_tx_flag_set = false;
-    for meta in &attr_meta {
-        if let Meta::NameValue(nv) = meta {
-            if nv.path.is_ident("bitcoin_transaction") {
-                if bitcoin_tx_flag_set {
-                    return Err(Error::new_spanned(
-                        &nv.path,
-                        "duplicate `bitcoin_transaction` key",
-                    ));
-                }
-                bitcoin_tx_flag_set = true;
-                match &nv.value {
-                    syn::Expr::Lit(expr_lit) => {
-                        if let Lit::Bool(lit_bool) = &expr_lit.lit {
-                            enable_bitcoin_tx = lit_bool.value;
-                        } else {
-                            return Err(Error::new_spanned(
-                                &nv.value,
-                                "bitcoin_transaction value must be a boolean literal",
-                            ));
-                        }
-                    }
-                    _ => {
-                        return Err(Error::new_spanned(
-                            &nv.value,
-                            "bitcoin_transaction value must be boolean literal",
-                        ));
-                    }
-                }
-            }
-        }
-    }
-
-    // Second pass: handle the remaining keys, including the nested `btc_tx_cfg` section.
+    // Flags used during the second pass
     let mut btc_tx_cfg_seen = false;
+
+    // ------------------------------------------------------------
+    // 2. Handle each top-level attribute key/section
+    // ------------------------------------------------------------
     for meta in &attr_meta {
         match meta {
-            // Skip: handled in first pass
-            Meta::NameValue(nv) if nv.path.is_ident("bitcoin_transaction") => {}
-
             // ---------------------------
             // instruction = "path::ToInstr"
             // ---------------------------
@@ -129,13 +98,6 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                 }
                 btc_tx_cfg_seen = true;
 
-                if !enable_bitcoin_tx {
-                    return Err(Error::new_spanned(
-                        &ml.path,
-                        "`btc_tx_cfg` is only allowed when `bitcoin_transaction = true`",
-                    ));
-                }
-
                 let inner_parser = Punctuated::<Meta, syn::Token![,]>::parse_terminated;
                 let inner_meta = inner_parser.parse2(ml.tokens.clone())?;
                 for nested in inner_meta {
@@ -143,8 +105,7 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                         Meta::NameValue(nv) if nv.path.is_ident("max_inputs_to_sign") => {
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
-                                    btc_tx_cfg.max_inputs_to_sign =
-                                        Some(int_lit.base10_parse::<usize>()?);
+                                    btc_tx_cfg.max_inputs_to_sign = Some(int_lit.base10_parse::<usize>()?);
                                 } else {
                                     return Err(Error::new_spanned(
                                         &nv.value,
@@ -161,8 +122,7 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                         Meta::NameValue(nv) if nv.path.is_ident("max_modified_accounts") => {
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
-                                    btc_tx_cfg.max_modified_accounts =
-                                        Some(int_lit.base10_parse::<usize>()?);
+                                    btc_tx_cfg.max_modified_accounts = Some(int_lit.base10_parse::<usize>()?);
                                 } else {
                                     return Err(Error::new_spanned(
                                         &nv.value,
@@ -202,29 +162,42 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                     }
                 }
             }
+
+            // ---------------------------
+            // Removed flag: bitcoin_transaction = bool
+            // --------------------------------------------------
+            Meta::NameValue(nv) if nv.path.is_ident("bitcoin_transaction") => {
+                return Err(Error::new_spanned(
+                    &nv.path,
+                    "`bitcoin_transaction` flag has been removed; use `btc_tx_cfg(...)` to enable Bitcoin transaction support",
+                ));
+            }
+
             other => {
                 return Err(Error::new_spanned(
                     other,
-                    "unknown attribute key; expected `instruction`, `bitcoin_transaction`, or `btc_tx_cfg`",
+                    "unknown attribute key; expected `instruction` or `btc_tx_cfg`",
                 ));
             }
         }
     }
 
     // ---------------------------
-    // Final validations + defaults
+    // 3. Final validations + defaults
     // ---------------------------
+    let enable_bitcoin_tx = btc_tx_cfg_seen;
+
     if enable_bitcoin_tx {
         if btc_tx_cfg.max_inputs_to_sign.is_none() {
             return Err(Error::new_spanned(
                 TokenStream::new(),
-                "`btc_tx_cfg` must specify `max_inputs_to_sign` when bitcoin_transaction is true",
+                "`btc_tx_cfg` must specify `max_inputs_to_sign`",
             ));
         }
         if btc_tx_cfg.max_modified_accounts.is_none() {
             return Err(Error::new_spanned(
                 TokenStream::new(),
-                "`btc_tx_cfg` must specify `max_modified_accounts` when bitcoin_transaction is true",
+                "`btc_tx_cfg` must specify `max_modified_accounts`",
             ));
         }
         if btc_tx_cfg.rune_set.is_none() {
@@ -265,7 +238,6 @@ mod tests {
     fn parses_full_bitcoin_tx_cfg() {
         let ts: proc_macro2::TokenStream = quote!(
             instruction = "crate::ix::Instr",
-            bitcoin_transaction = true,
             btc_tx_cfg(max_inputs_to_sign = 8, max_modified_accounts = 16)
         );
         let cfg = parse(ts).expect("should parse");
@@ -276,16 +248,8 @@ mod tests {
 
     #[test]
     fn error_on_missing_instruction() {
-        let ts: proc_macro2::TokenStream = quote!(bitcoin_transaction = false);
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
-    fn error_on_btc_tx_cfg_without_flag() {
-        let ts: proc_macro2::TokenStream = quote!(
-            instruction = "crate::ix::Instr",
-            btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1)
-        );
+        // Missing the required `instruction = "Path"` key should error.
+        let ts: proc_macro2::TokenStream = quote!(btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1));
         assert!(parse(ts).is_err());
     }
 
@@ -299,20 +263,9 @@ mod tests {
     }
 
     #[test]
-    fn error_on_duplicate_bitcoin_transaction_key() {
-        let ts: proc_macro2::TokenStream = quote!(
-            instruction = "crate::ix::Instr",
-            bitcoin_transaction = true,
-            bitcoin_transaction = false
-        );
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
     fn error_on_duplicate_btc_tx_cfg_section() {
         let ts: proc_macro2::TokenStream = quote!(
             instruction = "crate::ix::Instr",
-            bitcoin_transaction = true,
             btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1),
             btc_tx_cfg(max_inputs_to_sign = 2, max_modified_accounts = 2)
         );
@@ -329,7 +282,6 @@ mod tests {
     fn error_on_unknown_btc_tx_cfg_key() {
         let ts: proc_macro2::TokenStream = quote!(
             instruction = "crate::ix::Instr",
-            bitcoin_transaction = true,
             btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1, bar = 10)
         );
         assert!(parse(ts).is_err());
@@ -342,28 +294,9 @@ mod tests {
     }
 
     #[test]
-    fn error_on_missing_btc_tx_cfg_when_flag_true() {
-        let ts: proc_macro2::TokenStream =
-            quote!(instruction = "crate::ix::Instr", bitcoin_transaction = true);
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
-    fn error_on_btc_tx_cfg_missing_required_fields() {
-        // Only specify one of the required fields
-        let ts: proc_macro2::TokenStream = quote!(
-            instruction = "crate::ix::Instr",
-            bitcoin_transaction = true,
-            btc_tx_cfg(max_inputs_to_sign = 8)
-        );
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
     fn parses_btc_tx_cfg_with_default_rune_set() {
         let ts: proc_macro2::TokenStream = quote!(
             instruction = "crate::ix::Instr",
-            bitcoin_transaction = true,
             btc_tx_cfg(max_inputs_to_sign = 4, max_modified_accounts = 8)
         );
         let cfg = parse(ts).expect("should parse");
@@ -377,7 +310,6 @@ mod tests {
     fn parses_btc_tx_cfg_with_custom_rune_set() {
         let ts: proc_macro2::TokenStream = quote!(
             instruction = "crate::ix::Instr",
-            bitcoin_transaction = true,
             btc_tx_cfg(
                 max_inputs_to_sign = 2,
                 max_modified_accounts = 4,

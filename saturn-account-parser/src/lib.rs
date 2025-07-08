@@ -26,8 +26,8 @@ pub struct Context<'a, 'b, 'c, 'info, T: Accounts<'info>, TxBuilder = ()> {
     /// struct.
     pub remaining_accounts: &'c [AccountInfo<'info>],
 
-    /// Optional Bitcoin transaction builder available when the program opts-in
-    /// via the `bitcoin_transaction` attribute flag.
+    /// Optional Bitcoin transaction builder available when the program opts in
+    /// by providing a `btc_tx_cfg(...)` section in the `#[saturn_program]` attribute.
     pub btc_tx: TxBuilder,
 }
 
