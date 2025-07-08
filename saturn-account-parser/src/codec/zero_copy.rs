@@ -195,3 +195,13 @@ where
 
 /// Short alias mirroring `BorshAccount`.
 pub type ZeroCopyAccount<'a, T> = AccountLoader<'a, T>;
+
+// Allow treating `ZeroCopyAccount` as an `AccountInfo` via `AsRef`.
+impl<'a, T> AsRef<arch_program::account::AccountInfo<'a>> for AccountLoader<'a, T>
+where
+    T: Pod + Zeroable + 'static,
+{
+    fn as_ref(&self) -> &arch_program::account::AccountInfo<'a> {
+        self.account
+    }
+}

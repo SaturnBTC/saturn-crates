@@ -109,3 +109,13 @@ where
 
 /// Alias so callers can write `BorshAccount<'info, T>` like in Anchor.
 pub type BorshAccount<'a, T> = Account<'a, T>;
+
+// Allow treating `BorshAccount` as an `AccountInfo` via `AsRef`.
+impl<'a, T> AsRef<arch_program::account::AccountInfo<'a>> for Account<'a, T>
+where
+    T: BorshSerialize + BorshDeserialize,
+{
+    fn as_ref(&self) -> &arch_program::account::AccountInfo<'a> {
+        self.account
+    }
+}

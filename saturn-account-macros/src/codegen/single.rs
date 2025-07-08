@@ -136,7 +136,7 @@ fn generate_single_zero_copy(
                     let space: u64 = #space_ts;
                     let lamports: u64 = arch_program::account::MIN_ACCOUNT_LAMPORTS;
                     let create_ix = arch_program::system_instruction::create_account(
-                        #payer_expr.key,
+                        saturn_account_parser::ToAccountInfo::to_account_info(&#payer_expr).key,
                         acc_info_tmp.key,
                         lamports,
                         space,
@@ -157,7 +157,7 @@ fn generate_single_zero_copy(
 
                     arch_program::program::invoke_signed(
                         &create_ix,
-                        &[#payer_expr.clone(), acc_info_tmp.clone()],
+                        &[saturn_account_parser::ToAccountInfo::to_account_info(&#payer_expr).clone(), acc_info_tmp.clone()],
                         signer_seeds,
                     )?;
                 }
@@ -185,7 +185,7 @@ fn generate_single_zero_copy(
                     let space: u64 = #space_ts;
                     let lamports: u64 = arch_program::account::MIN_ACCOUNT_LAMPORTS;
                     let create_ix = arch_program::system_instruction::create_account(
-                        #payer_expr.key,
+                        saturn_account_parser::ToAccountInfo::to_account_info(&#payer_expr).key,
                         acc_info_tmp.key,
                         lamports,
                         space,
@@ -194,7 +194,7 @@ fn generate_single_zero_copy(
 
                     arch_program::program::invoke(
                         &create_ix,
-                        &[#payer_expr.clone(), acc_info_tmp.clone()],
+                        &[saturn_account_parser::ToAccountInfo::to_account_info(&#payer_expr).clone(), acc_info_tmp.clone()],
                     )?;
                 }
 
@@ -255,7 +255,7 @@ fn generate_single_borsh_init(
                 let space: u64 = #space_ts;
                 let lamports: u64 = arch_program::account::MIN_ACCOUNT_LAMPORTS;
                 let create_ix = arch_program::system_instruction::create_account(
-                    #payer_expr.key,
+                    saturn_account_parser::ToAccountInfo::to_account_info(&#payer_expr).key,
                     acc_info_tmp.key,
                     lamports,
                     space,
@@ -275,7 +275,7 @@ fn generate_single_borsh_init(
 
                 arch_program::program::invoke_signed(
                     &create_ix,
-                    &[#payer_expr.clone(), acc_info_tmp.clone()],
+                    &[saturn_account_parser::ToAccountInfo::to_account_info(&#payer_expr).clone(), acc_info_tmp.clone()],
                     signer_seeds,
                 )?;
             }
@@ -301,7 +301,7 @@ fn generate_single_borsh_init(
                 let space: u64 = #space_ts;
                 let lamports: u64 = arch_program::account::MIN_ACCOUNT_LAMPORTS;
                 let create_ix = arch_program::system_instruction::create_account(
-                    #payer_expr.key,
+                    saturn_account_parser::ToAccountInfo::to_account_info(&#payer_expr).key,
                     acc_info_tmp.key,
                     lamports,
                     space,
@@ -310,7 +310,7 @@ fn generate_single_borsh_init(
 
                 arch_program::program::invoke(
                     &create_ix,
-                    &[#payer_expr.clone(), acc_info_tmp.clone()],
+                    &[saturn_account_parser::ToAccountInfo::to_account_info(&#payer_expr).clone(), acc_info_tmp.clone()],
                 )?;
             }
 

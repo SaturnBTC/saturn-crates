@@ -3,9 +3,11 @@ use arch_program::{account::AccountInfo, program_error::ProgramError, pubkey::Pu
 use crate::error::ErrorCode;
 
 pub mod codec;
+mod to_account_info;
 pub use codec::{Account, AccountLoader};
 pub mod error;
 pub mod tx_builder;
+pub use to_account_info::ToAccountInfo;
 pub use tx_builder::TxBuilderWrapper;
 
 /// Anchor-style instruction context that bundles the executing program id, a
