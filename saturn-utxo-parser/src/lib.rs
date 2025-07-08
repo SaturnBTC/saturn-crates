@@ -22,7 +22,7 @@
 //! use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
 //!
 //! #[derive(UtxoParser)]
-//! struct MyInstruction<'a> {
+//! struct MyInstructionUtxos<'a> {
 //!     // Exactly one UTXO worth 10,000 sats with no runes
 //!     #[utxo(value = 10_000, runes = "none")]
 //!     fee_utxo: &'a UtxoInfo,
@@ -38,7 +38,7 @@
 //!
 //! // Usage in your program
 //! fn process_utxos(utxos: &[UtxoInfo]) -> Result<(), ProgramError> {
-//!     let parsed = MyInstruction::try_utxos(utxos)?;
+//!     let parsed = MyInstructionUtxos::try_utxos(utxos)?;
 //!     // Use parsed.fee_utxo, parsed.rune_input, etc.
 //!     Ok(())
 //! }
