@@ -8,6 +8,7 @@ pub struct BtcTxCfg {
     pub max_inputs_to_sign: Option<usize>,
     pub max_modified_accounts: Option<usize>,
     pub rune_set: Option<Path>,
+    pub rune_capacity: Option<usize>,
 }
 
 /// Result of parsing the procedural macro attribute.
@@ -15,8 +16,7 @@ pub struct BtcTxCfg {
 pub struct AttrConfig {
     pub instruction_path: Path,
     /// If `true`, the generated program will include Bitcoin transaction builder logic.
-    /// This is now inferred from the presence of a `btc_tx_cfg(..)` section rather than
-    /// an explicit `bitcoin_transaction` flag.
+    /// This is enabled when a `btc_tx_cfg(..)` section is present in the attribute list.
     pub enable_bitcoin_tx: bool,
     pub btc_tx_cfg: BtcTxCfg,
 }
@@ -105,7 +105,8 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                         Meta::NameValue(nv) if nv.path.is_ident("max_inputs_to_sign") => {
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
-                                    btc_tx_cfg.max_inputs_to_sign = Some(int_lit.base10_parse::<usize>()?);
+                                    btc_tx_cfg.max_inputs_to_sign =
+                                        Some(int_lit.base10_parse::<usize>()?);
                                 } else {
                                     return Err(Error::new_spanned(
                                         &nv.value,
@@ -122,7 +123,8 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                         Meta::NameValue(nv) if nv.path.is_ident("max_modified_accounts") => {
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
-                                    btc_tx_cfg.max_modified_accounts = Some(int_lit.base10_parse::<usize>()?);
+                                    btc_tx_cfg.max_modified_accounts =
+                                        Some(int_lit.base10_parse::<usize>()?);
                                 } else {
                                     return Err(Error::new_spanned(
                                         &nv.value,
@@ -153,24 +155,32 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                                 ));
                             }
                         }
+                        Meta::NameValue(nv) if nv.path.is_ident("rune_capacity") => {
+                            if let syn::Expr::Lit(expr_lit) = &nv.value {
+                                if let Lit::Int(int_lit) = &expr_lit.lit {
+                                    btc_tx_cfg.rune_capacity =
+                                        Some(int_lit.base10_parse::<usize>()?);
+                                } else {
+                                    return Err(Error::new_spanned(
+                                        &nv.value,
+                                        "rune_capacity must be an integer literal",
+                                    ));
+                                }
+                            } else {
+                                return Err(Error::new_spanned(
+                                    &nv.value,
+                                    "rune_capacity must be an integer literal",
+                                ));
+                            }
+                        }
                         other => {
                             return Err(Error::new_spanned(
                                 other,
-                                "unknown key inside btc_tx_cfg; expected `max_inputs_to_sign`, `max_modified_accounts`, or `rune_set`",
+                                "unknown key inside btc_tx_cfg; expected `max_inputs_to_sign`, `max_modified_accounts`, `rune_set`, or `rune_capacity`",
                             ));
                         }
                     }
                 }
-            }
-
-            // ---------------------------
-            // Removed flag: bitcoin_transaction = bool
-            // --------------------------------------------------
-            Meta::NameValue(nv) if nv.path.is_ident("bitcoin_transaction") => {
-                return Err(Error::new_spanned(
-                    &nv.path,
-                    "`bitcoin_transaction` flag has been removed; use `btc_tx_cfg(...)` to enable Bitcoin transaction support",
-                ));
             }
 
             other => {
@@ -200,10 +210,25 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                 "`btc_tx_cfg` must specify `max_modified_accounts`",
             ));
         }
+
+        // Ensure exactly one of rune_set or rune_capacity is provided (they are mutually exclusive).
+        if btc_tx_cfg.rune_set.is_some() && btc_tx_cfg.rune_capacity.is_some() {
+            return Err(Error::new_spanned(
+                TokenStream::new(),
+                "btc_tx_cfg keys rune_set and rune_capacity are mutually exclusive",
+            ));
+        }
+
+        // Derive default or placeholder rune_set path when not explicitly provided.
         if btc_tx_cfg.rune_set.is_none() {
-            btc_tx_cfg.rune_set = Some(syn::parse_str(
-                "saturn_bitcoin_transactions::utxo_info::SingleRuneSet",
-            )?);
+            if btc_tx_cfg.rune_capacity.is_some() {
+                // Placeholder – actual path resolved later by dispatcher generation.
+                btc_tx_cfg.rune_set = Some(syn::parse_str("RuneSet")?);
+            } else {
+                btc_tx_cfg.rune_set = Some(syn::parse_str(
+                    "saturn_bitcoin_transactions::utxo_info::SingleRuneSet",
+                )?);
+            }
         }
     }
 
@@ -249,7 +274,10 @@ mod tests {
     #[test]
     fn error_on_missing_instruction() {
         // Missing the required `instruction = "Path"` key should error.
-        let ts: proc_macro2::TokenStream = quote!(btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1));
+        let ts: proc_macro2::TokenStream = quote!(btc_tx_cfg(
+            max_inputs_to_sign = 1,
+            max_modified_accounts = 1
+        ));
         assert!(parse(ts).is_err());
     }
 

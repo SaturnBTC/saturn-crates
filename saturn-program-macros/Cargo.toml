@@ -19,4 +19,5 @@ arch_program = { workspace = true }
 saturn-account-macros = { workspace = true }
 saturn-account-parser = { workspace = true }
 saturn-bitcoin-transactions = { workspace = true }
+saturn-collections = { workspace = true }
 borsh = { workspace = true } 
