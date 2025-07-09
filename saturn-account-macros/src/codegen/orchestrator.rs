@@ -188,7 +188,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(signer)]
-                user: saturn_account_parser::codec::BorshAccount<'info, u64>,
+                user: saturn_account_parser::codec::Account<'info, u64>,
                 #[account(len = 2)]
                 pdas: Vec<arch_program::account::AccountInfo<'info>>,
             }
@@ -205,7 +205,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
-                pda: saturn_account_parser::codec::BorshAccount<'info, u64>,
+                pda: saturn_account_parser::codec::Account<'info, u64>,
                 #[account(bump, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
                 pda_bump: u8,
             }
@@ -224,7 +224,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
-                pda: saturn_account_parser::codec::BorshAccount<'info, u64>,
+                pda: saturn_account_parser::codec::Account<'info, u64>,
                 #[account(bump, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
                 pda_bump: [u8; 1],
             }

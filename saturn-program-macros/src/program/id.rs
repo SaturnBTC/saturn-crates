@@ -37,14 +37,39 @@ pub fn declare_id(input: TokenStream) -> TokenStream {
         Err(err) => return err.to_compile_error(),
     };
     let id_literal = parsed.0;
+    // Parse the provided base-58 string into a `Pubkey`
+    use std::str::FromStr;
+    let id_str = id_literal.value();
+    let pk = match ::arch_program::pubkey::Pubkey::from_str(&id_str) {
+        Ok(pk) => pk,
+        Err(e) => {
+            return syn::Error::new_spanned(
+                id_literal,
+                format!("`declare_id!` got invalid program ID: {e}"),
+            )
+            .to_compile_error();
+        }
+    };
+
+    // Convert the pubkey bytes into numeric literals for embedding in generated code.
+    let byte_literals: Vec<proc_macro2::TokenStream> =
+        pk.0.iter()
+            .map(|b| {
+                let lit = syn::LitInt::new(&b.to_string(), proc_macro2::Span::call_site());
+                quote! { #lit }
+            })
+            .collect();
 
     quote! {
-        /// Returns the declared program [`Pubkey`].
+        /// **Saturn generated:** Constant program ID for this crate.
+        pub const ID: ::arch_program::pubkey::Pubkey = ::arch_program::pubkey::Pubkey([
+            #( #byte_literals ),*
+        ]);
+
+        /// Returns the declared program [`Pubkey`]. Equivalent to `ID`.
         #[inline]
         pub fn id() -> ::arch_program::pubkey::Pubkey {
-            use std::str::FromStr;
-            ::arch_program::pubkey::Pubkey::from_str(#id_literal)
-                .expect("Invalid program ID supplied to declare_id! macro")
+            ID
         }
     }
 }
@@ -59,9 +84,9 @@ mod tests {
         let input: TokenStream = quote!("11111111111111111111111111111111");
         let ts = declare_id(input);
         let ts_str = ts.to_string();
-        // Expect it contains fn id() and the same literal string
+        // Expect it contains fn id() and `pub const ID` definition
         assert!(ts_str.contains("fn id"));
-        assert!(ts_str.contains("11111111111111111111111111111111"));
+        assert!(ts_str.contains("pub const ID"));
     }
 
     #[test]

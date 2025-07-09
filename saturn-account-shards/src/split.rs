@@ -19,6 +19,8 @@ use crate::StateShardError;
 #[cfg(feature = "runes")]
 use ordinals::Edict;
 
+use saturn_account_parser::codec::zero_copy::Discriminator;
+
 /// Splits the *remaining* satoshi value that belongs to the provided `shards`
 /// back into brand-new outputs, one per shard, so that liquidity across all
 /// participating shards ends up as even as possible.
@@ -79,7 +81,7 @@ pub fn redistribute_remaining_btc_to_shards<
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + 'static,
+    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + Discriminator + 'static,
 {
     let remaining_amount =
         compute_unsettled_btc_in_shards(tx_builder, shard_set, removed_from_shards, fee_rate)?;
@@ -132,7 +134,7 @@ pub fn compute_unsettled_btc_in_shards<
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + 'static,
+    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + Discriminator + 'static,
 {
     let mut total_btc_amount = 0u64;
 
@@ -216,7 +218,7 @@ fn plan_btc_distribution_among_shards<
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + 'static,
+    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + Discriminator + 'static,
 {
     let mut result = balance_amount_across_shards::<
         MAX_USER_UTXOS,
@@ -282,7 +284,7 @@ fn balance_amount_across_shards<
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + 'static,
+    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + Discriminator + 'static,
 {
     let num_shards = shard_set.selected_indices().len();
 
@@ -440,7 +442,7 @@ pub fn compute_unsettled_rune_in_shards<'info, RS, U, S, const MAX_SELECTED: usi
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + 'static,
+    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + Discriminator + 'static,
 {
     let mut total_rune_amount = RS::default();
 
@@ -515,7 +517,7 @@ pub fn plan_rune_distribution_among_shards<
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + 'static,
+    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + Discriminator + 'static,
 {
     let num_shards = shard_set.selected_indices().len();
     let mut result: Vec<RS> = (0..num_shards).map(|_| RS::default()).collect();
@@ -592,7 +594,7 @@ pub fn redistribute_remaining_rune_to_shards<
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + 'static,
+    S: StateShard<U, RS> + bytemuck::Pod + bytemuck::Zeroable + Discriminator + 'static,
 {
     let remaining_amount =
         compute_unsettled_rune_in_shards::<RS, U, S, MAX_SELECTED>(shard_set, removed_from_shards)?;
@@ -1557,7 +1559,7 @@ mod rune_tests_loader {
         >(&selected, SingleRuneSet::default())
         .unwrap();
 
-        assert_eq!(unsettled.find(&RuneId::BTC).unwrap().amount, 150);
+        assert_eq!(unsettled.find(&RuneId::new(1, 1)).unwrap().amount, 150);
     }
 
     // ---------------------------------------------------------------
@@ -1588,7 +1590,7 @@ mod rune_tests_loader {
         let mut target = SingleRuneSet::default();
         target
             .insert(RuneAmount {
-                id: RuneId::BTC,
+                id: RuneId::new(1, 1),
                 amount: 600,
             })
             .unwrap();
@@ -1606,7 +1608,7 @@ mod rune_tests_loader {
         assert_eq!(dist.len(), 3);
         let allocs: Vec<u128> = dist
             .iter()
-            .map(|s| s.find(&RuneId::BTC).unwrap().amount)
+            .map(|s| s.find(&RuneId::new(1, 1)).unwrap().amount)
             .collect();
         assert_eq!(allocs, vec![300, 200, 100]);
     }
@@ -1639,7 +1641,7 @@ mod rune_tests_loader {
         let mut removed = SingleRuneSet::default();
         removed
             .insert(RuneAmount {
-                id: RuneId::BTC,
+                id: RuneId::new(1, 1),
                 amount: 150,
             })
             .unwrap();
@@ -1657,7 +1659,7 @@ mod rune_tests_loader {
         // Expect proportional (75, 150, 225) regardless of ordering
         let mut allocs: Vec<u128> = dist
             .iter()
-            .map(|s| s.find(&RuneId::BTC).unwrap().amount)
+            .map(|s| s.find(&RuneId::new(1, 1)).unwrap().amount)
             .collect();
         allocs.sort_unstable();
         assert_eq!(allocs, vec![50, 150, 250]);

@@ -33,13 +33,13 @@ impl Default for AttrInfo {
     }
 }
 
-/// Determine if the type is `&'a UtxoInfo`, `Vec<&'a UtxoInfo>` or an array `[&'a UtxoInfo; N]`.
+/// Determine if the type is `UtxoInfo`, `Vec<UtxoInfo>` or an array `[UtxoInfo; N]`.
 #[derive(Debug, Clone)]
 enum FieldKind {
     Single,
     Array(proc_macro2::TokenStream), // len expression tokenstream
     Vec,
-    Optional, // Option<&'a UtxoInfo>
+    Optional, // Option<UtxoInfo>
 }
 
 /// Derive macro that generates an implementation of [`TryFromUtxos`] for a
@@ -76,10 +76,10 @@ enum FieldKind {
 ///
 /// | Rust type                               | Behaviour                                              |
 /// | --------------------------------------- | ------------------------------------------------------ |
-/// | `&'a UtxoInfo`                          | Exactly one matching UTXO **must** be present.         |
-/// | `Option<&'a UtxoInfo>`                  | Zero or one matching UTXO may be present.              |
-/// | `[&'a UtxoInfo; N]`                     | Exactly *N* matching UTXOs must be present.            |
-/// | `Vec<&'a UtxoInfo>` **(see `rest`)**    | Variable-length list capturing remaining UTXOs.        |
+/// | `UtxoInfo`                               | Exactly one matching UTXO **must** be present.         |
+/// | `Option<UtxoInfo>`                       | Zero or one matching UTXO may be present.              |
+/// | `[UtxoInfo; N]`                          | Exactly *N* matching UTXOs must be present.            |
+/// | `Vec<UtxoInfo>` **(see `rest`)**         | Variable-length list capturing remaining UTXOs.        |
 ///
 /// A `Vec` field **must** be annotated with the `rest` flag, otherwise the
 /// compilation will fail.
@@ -105,7 +105,7 @@ enum FieldKind {
 ///   * `rune_amount = <expr>` – If `rune_id` is also provided, require the UTXO
 ///     to hold exactly this amount of the given rune. Otherwise require the
 ///     *total* rune amount inside the UTXO to equal the expression.
-///   * `anchor = <ident>` – Expect identifier that refers to a field in the Accounts struct
+///   * `anchor = <ident>` – Expect identifier that refers to a field in the Accounts struct. If `runes` is **omitted** on an anchored field, it is implicitly treated as `runes = "none"` for backward compatibility.
 ///
 /// The predicate generated from these parameters is applied to each candidate
 /// UTXO until a match is found.
@@ -119,18 +119,18 @@ enum FieldKind {
 /// use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
 ///
 /// #[derive(UtxoParser)]
-/// struct SimpleSwap<'a> {
+/// struct SimpleSwap {
 ///     // UTXO paying the on-chain fee.
 ///     #[utxo(value = 10_000, runes = "none")]
-///     fee: &'a UtxoInfo,
+///     fee: UtxoInfo,
 ///
 ///     // Optional rune deposit, any amount.
 ///     #[utxo(runes = "some")]
-///     deposit: Option<&'a UtxoInfo>,
+///     deposit: Option<UtxoInfo>,
 ///
 ///     // Capture all remaining inputs.
 ///     #[utxo(rest)]
-///     others: Vec<&'a UtxoInfo>,
+///     others: Vec<UtxoInfo>,
 /// }
 /// ```
 ///
@@ -141,10 +141,10 @@ enum FieldKind {
 /// use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
 ///
 /// #[derive(UtxoParser)]
-/// struct MultiInput<'a> {
+/// struct MultiInput {
 ///     // Exactly 3 UTXOs with specific value
 ///     #[utxo(value = 5_000)]
-///     inputs: [&'a UtxoInfo; 3],
+///     inputs: [UtxoInfo; 3],
 /// }
 /// ```
 ///
@@ -155,14 +155,14 @@ enum FieldKind {
 /// use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
 ///
 /// #[derive(UtxoParser)]
-/// struct RuneTransfer<'a> {
+/// struct RuneTransfer {
 ///     // Exact rune ID and amount
 ///     #[utxo(rune_id = my_rune_id, rune_amount = 1000)]
-///     specific_rune: &'a UtxoInfo,
+///     specific_rune: UtxoInfo,
 ///
 ///     // Any UTXO with exactly 500 total runes
 ///     #[utxo(rune_amount = 500)]
-///     any_rune_500: &'a UtxoInfo,
+///     any_rune_500: UtxoInfo,
 /// }
 /// ```
 ///

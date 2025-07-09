@@ -12,6 +12,7 @@ quote = { workspace = true }
 saturn-account-shards = { workspace = true }
 syn = { workspace = true }
 bytemuck = { workspace = true }
+sha2 = "0.10"
 
 [dev-dependencies]
 saturn-bitcoin-transactions = { workspace = true }

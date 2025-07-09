@@ -1,13 +1,16 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use saturn_account_macros::Accounts;
-use saturn_account_parser::codec::BorshAccount;
-use saturn_program_macros::saturn_program;
+use saturn_account_parser::codec::Account;
 use saturn_bitcoin_transactions::utxo_info::SingleRuneSet;
+use saturn_program_macros::declare_id;
+use saturn_program_macros::saturn_program;
+
+declare_id!("8YE2m8RGmFjyWkHfMV6aA1eeaoAj8ZqEXnoY6v1WKEwd");
 
 #[derive(Accounts)]
 struct DummyAccounts<'info> {
     #[account(signer)]
-    caller: BorshAccount<'info, u64>,
+    caller: Account<'info, u64>,
 }
 
 mod instruction {
@@ -21,15 +24,16 @@ mod instruction {
     pub type RuneSet = SingleRuneSet;
 }
 
-#[saturn_program(
-    instruction = "crate::instruction::Instr",
-    btc_tx_cfg(max_inputs_to_sign = 2, max_modified_accounts = 4, rune_set = "crate::instruction::RuneSet")
-)]
+#[saturn_program(btc_tx_cfg(
+    max_inputs_to_sign = 2,
+    max_modified_accounts = 4,
+    rune_set = "crate::instruction::RuneSet"
+))]
 mod handlers {
     use super::*;
     pub fn handle<'info>(
         // `Context` path is intentionally unqualified – macro must rewrite it
-        ctx: &mut Context<'info, DummyAccounts<'info>>,
+        ctx: Context<'info, DummyAccounts<'info>>,
         _value: u8,
     ) -> Result<(), arch_program::program_error::ProgramError> {
         let _ = &ctx.btc_tx;
@@ -37,4 +41,4 @@ mod handlers {
     }
 }
 
-fn main() {} 
+fn main() {}

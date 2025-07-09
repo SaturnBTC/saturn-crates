@@ -8,8 +8,8 @@
 ///
 /// Implementations are provided for:
 /// * Raw `AccountInfo<'info>` – returns itself.
-/// * `codec::BorshAccount<'info, T>` (`Account<'info, T>`) – returns the embedded `AccountInfo`.
-/// * `codec::ZeroCopyAccount<'info, T>` (`AccountLoader<'info, T>`) – same.
+/// * `codec::Account<'info, T>` (`Account<'info, T>`) – returns the embedded `AccountInfo`.
+/// * `codec::AccountLoader<'info, T>` (`AccountLoader<'info, T>`) – same.
 pub trait ToAccountInfo<'info> {
     /// Returns an **owned** [`AccountInfo`] pointing at the same underlying data. This mirrors
     /// Anchor's `ToAccountInfo` behaviour and lets the caller pass the value directly into CPI

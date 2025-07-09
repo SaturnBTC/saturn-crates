@@ -1,5 +1,6 @@
 use arch_program::program_error::ProgramError;
 use bytemuck::{Pod, Zeroable};
+use saturn_account_parser::codec::zero_copy::Discriminator;
 use saturn_account_parser::codec::zero_copy::AccountLoader;
 
 /// Lightweight handle around an [`AccountLoader`].
@@ -17,14 +18,14 @@ use saturn_account_parser::codec::zero_copy::AccountLoader;
 #[derive(Copy, Clone)]
 pub struct ShardHandle<'info, S>
 where
-    S: Pod + Zeroable + 'static,
+    S: Pod + Zeroable + Discriminator + 'static,
 {
     loader: &'info AccountLoader<'info, S>,
 }
 
 impl<'info, S> ShardHandle<'info, S>
 where
-    S: Pod + Zeroable + 'static,
+    S: Pod + Zeroable + Discriminator + 'static,
 {
     /// Wrap an existing [`AccountLoader`].
     #[inline]
@@ -38,14 +39,11 @@ where
         self.loader
     }
 
-    /// Provides an immutable borrow of the underlying shard for the duration
-    /// of `f`.
+    /// Provides an immutable borrow of the underlying shard for the duration of `f`.
     #[inline]
     pub fn with_ref<R>(&self, f: impl FnOnce(&S) -> R) -> Result<R, ProgramError> {
         let borrow = self.loader.load()?;
-        // `Ref` implements `Deref<Target = S>` so we can pass `&*borrow`.
         Ok(f(&*borrow))
-        // `borrow` is dropped here, releasing the runtime borrow.
     }
 
     /// Provides a mutable borrow of the underlying shard for the duration of

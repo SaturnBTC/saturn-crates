@@ -1,4 +1,4 @@
-error[E0609]: no field `missing` on type `&'a DummyAccounts<'a>`
+error[E0609]: no field `missing` on type `&DummyAccounts<'info2>`
   --> tests/compile_fail/missing_anchor.rs:25:21
    |
 25 |     #[utxo(anchor = missing)]

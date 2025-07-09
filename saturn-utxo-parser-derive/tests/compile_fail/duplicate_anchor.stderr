@@ -1,5 +1,0 @@
-error: Multiple fields specify `anchor` attribute; only one field is allowed
-  --> tests/compile_fail/duplicate_anchor.rs:21:21
-   |
-21 |     #[utxo(anchor = acc)]
-   |                     ^^^

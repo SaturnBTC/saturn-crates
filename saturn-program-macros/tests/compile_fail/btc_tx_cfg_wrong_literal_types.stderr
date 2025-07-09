@@ -1,5 +1,5 @@
 error: max_inputs_to_sign must be an integer literal
-  --> tests/compile_fail/btc_tx_cfg_wrong_literal_types.rs:12:37
+  --> tests/compile_fail/btc_tx_cfg_wrong_literal_types.rs:11:37
    |
-12 |     btc_tx_cfg(max_inputs_to_sign = "four", max_modified_accounts = true)
+11 |     btc_tx_cfg(max_inputs_to_sign = "four", max_modified_accounts = true)
    |                                     ^^^^^^

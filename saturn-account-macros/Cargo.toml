@@ -18,3 +18,5 @@ saturn-account-parser = { workspace = true }
 trybuild = { workspace = true }
 insta = { workspace = true }
 proptest = { workspace = true } 
+bytemuck = { workspace = true }
+saturn-account-discriminator-derive = { workspace = true }

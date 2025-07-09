@@ -17,13 +17,13 @@ impl<'info> saturn_account_parser::Accounts<'info> for DummyAccounts<'info> {
 }
 
 #[derive(UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
-struct MissingAnchor<'a> {
+#[utxo_accounts(DummyAccounts)]
+struct MissingAnchor {
     // The `anchor = missing` identifier does not exist on `DummyAccounts`; the macro
     // expansion will therefore reference a non-existent field and the compiler
     // must emit an error.
     #[utxo(anchor = missing)]
-    utxo: &'a UtxoInfo,
+    utxo: UtxoInfo,
 }
 
 fn main() {}

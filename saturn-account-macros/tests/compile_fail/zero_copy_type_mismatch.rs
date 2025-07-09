@@ -1,13 +1,13 @@
 use saturn_account_macros::Accounts;
-use saturn_account_parser::codec::BorshAccount;
+use saturn_account_parser::codec::Account;
 
 #[derive(Accounts)]
 struct ZeroCopyTypeMismatch<'info> {
-    #[account(zero_copy, init, payer = payer, program_id = arch_program::pubkey::Pubkey::default())]
-    // Intentional: using BorshAccount instead of ZeroCopyAccount
-    data: BorshAccount<'info, u64>,
-    #[account(signer)]
+    #[account(mut, signer)]
     payer: arch_program::account::AccountInfo<'info>,
+    #[account(zero_copy, init, mut, payer = payer, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
+    // Intentional: using Account instead of AccountLoader
+    data: Account<'info, u64>,
 }
 
-fn main() {} 
+fn main() {}

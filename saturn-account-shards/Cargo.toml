@@ -16,6 +16,7 @@ bitcoin = { workspace = true }
 saturn-safe-math = { workspace = true }
 saturn-error = { workspace = true }
 saturn-account-parser = { workspace = true }
+saturn-account-discriminator-derive = { path = "../saturn-account-discriminator-derive", optional = true }
 
 [features]
 default = ["runes", "utxo-consolidation"]
@@ -24,3 +25,4 @@ utxo-consolidation = ["saturn-bitcoin-transactions/utxo-consolidation"]
 
 [dev-dependencies]
 saturn-account-shards-derive = { workspace = true }
+saturn-account-discriminator-derive = { path = "../saturn-account-discriminator-derive" }

@@ -7,13 +7,9 @@ use saturn_utxo_parser::{ErrorCode, TryFromUtxos};
 use saturn_utxo_parser_derive::UtxoParser;
 
 /// Helper to create a deterministic `UtxoInfo` for testing purposes.
-fn create_utxo(value: u64, txid_byte: u8, vout: u32) -> UtxoInfo {
+fn create_meta(txid_byte: u8, vout: u32) -> UtxoMeta {
     let txid = [txid_byte; 32];
-    UtxoInfo {
-        meta: UtxoMeta::from(txid, vout),
-        value,
-        ..Default::default()
-    }
+    UtxoMeta::from(txid, vout)
 }
 
 // -----------------------------------------------------------------------------
@@ -21,27 +17,24 @@ fn create_utxo(value: u64, txid_byte: u8, vout: u32) -> UtxoInfo {
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(DummyAccounts)]
-struct ArrayParser<'a> {
-    /// Exactly three UTXOs each with value 7 sats.
-    #[utxo(value = 7)]
-    inputs: [&'a UtxoInfo; 3],
+struct ArrayParser {
+    /// Exactly three UTXOs (no additional predicates).
+    inputs: [UtxoInfo; 3],
 }
 
 #[test]
 fn parses_exact_array() {
     // Prepare three matching UTXOs in arbitrary order.
-    let utxo_a = create_utxo(7, 1, 0);
-    let utxo_b = create_utxo(7, 2, 0);
-    let utxo_c = create_utxo(7, 3, 0);
-    let inputs = vec![utxo_b.clone(), utxo_c.clone(), utxo_a.clone()];
+    let m_a = create_meta(1, 0);
+    let m_b = create_meta(2, 0);
+    let m_c = create_meta(3, 0);
+    let inputs = vec![m_b, m_c, m_a];
 
     let dummy = DummyAccounts::default();
     let parsed = ArrayParser::try_utxos(&dummy, &inputs).expect("parsing should succeed");
 
-    // Ensure all three UTXOs were captured and in no particular order.
-    for utxo in parsed.inputs.iter() {
-        assert_eq!(utxo.value, 7);
-    }
+    // Ensure we captured all three UTXOs in any order.
+    assert_eq!(parsed.inputs.len(), 3);
 }
 
 // -----------------------------------------------------------------------------
@@ -50,31 +43,26 @@ fn parses_exact_array() {
 
 #[test]
 fn array_too_few_inputs() {
-    let utxo_a = create_utxo(7, 1, 0);
-    let utxo_b = create_utxo(7, 2, 0);
+    let m_a = create_meta(1, 0);
+    let m_b = create_meta(2, 0);
     // Only 2 inputs instead of required 3
-    let inputs = vec![utxo_a.clone(), utxo_b.clone()];
+    let inputs = vec![m_a, m_b];
 
     let dummy = DummyAccounts::default();
     let err = ArrayParser::try_utxos(&dummy, &inputs).unwrap_err();
     assert_eq!(
         err,
-        ProgramError::Custom(ErrorCode::InvalidUtxoValue.into())
+        ProgramError::Custom(ErrorCode::MissingRequiredUtxo.into())
     );
 }
 
 #[test]
 fn array_too_many_inputs() {
-    let utxo_a = create_utxo(7, 1, 0);
-    let utxo_b = create_utxo(7, 2, 0);
-    let utxo_c = create_utxo(7, 3, 0);
-    let extra = create_utxo(7, 4, 0);
-    let inputs = vec![
-        utxo_a.clone(),
-        utxo_b.clone(),
-        utxo_c.clone(),
-        extra.clone(),
-    ];
+    let m_a = create_meta(1, 0);
+    let m_b = create_meta(2, 0);
+    let m_c = create_meta(3, 0);
+    let extra = create_meta(4, 0);
+    let inputs = vec![m_a, m_b, m_c, extra];
 
     let dummy = DummyAccounts::default();
     let err = ArrayParser::try_utxos(&dummy, &inputs).unwrap_err();

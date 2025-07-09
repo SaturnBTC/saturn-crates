@@ -5,6 +5,7 @@
 
 use crate::shard_set::{Selected, ShardSet, Unselected};
 use bytemuck::{Pod, Zeroable};
+use saturn_account_parser::codec::zero_copy::Discriminator;
 use saturn_account_parser::codec::zero_copy::AccountLoader;
 
 /// Convenience alias for an **unselected** `ShardSet` in which the typestate
@@ -22,7 +23,7 @@ pub type SelectedShards<'info, S, const MAX_SELECTED_SHARDS: usize> =
 impl<'info, S, const MAX_SELECTED_SHARDS: usize> From<&'info [&'info AccountLoader<'info, S>]>
     for ShardSet<'info, S, MAX_SELECTED_SHARDS, Unselected>
 where
-    S: Pod + Zeroable + 'static,
+    S: Pod + Zeroable + Discriminator + 'static,
 {
     #[inline]
     fn from(slice: &'info [&'info AccountLoader<'info, S>]) -> Self {

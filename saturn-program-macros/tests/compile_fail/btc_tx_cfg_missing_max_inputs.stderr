@@ -2,9 +2,8 @@ error: `btc_tx_cfg` must specify `max_inputs_to_sign`
   --> tests/compile_fail/btc_tx_cfg_missing_max_inputs.rs:10:1
    |
 10 | / #[saturn_program(
-11 | |     instruction = "crate::instruction::Instr",
-12 | |     btc_tx_cfg(max_modified_accounts = 2) // missing max_inputs_to_sign
-13 | | )]
+11 | |     btc_tx_cfg(max_modified_accounts = 2) // missing max_inputs_to_sign
+12 | | )]
    | |__^
    |
    = note: this error originates in the attribute macro `saturn_program` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -22,18 +22,18 @@
 //! use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
 //!
 //! #[derive(UtxoParser)]
-//! struct MyInstructionUtxos<'a> {
+//! struct MyInstructionUtxos {
 //!     // Exactly one UTXO worth 10,000 sats with no runes
 //!     #[utxo(value = 10_000, runes = "none")]
-//!     fee_utxo: &'a UtxoInfo,
+//!     fee_utxo: UtxoInfo,
 //!     
 //!     // Optional rune deposit
 //!     #[utxo(runes = "some")]
-//!     rune_input: Option<&'a UtxoInfo>,
+//!     rune_input: Option<UtxoInfo>,
 //!     
 //!     // All remaining UTXOs
 //!     #[utxo(rest)]
-//!     others: Vec<&'a UtxoInfo>,
+//!     others: Vec<UtxoInfo>,
 //! }
 //!
 //! // Usage in your program
@@ -61,6 +61,39 @@ pub mod prelude {
 }
 
 use arch_program::{program_error::ProgramError, utxo::UtxoMeta};
+use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
+
+// Bring in the host-side test registry when compiling off-chain.
+#[cfg(not(target_os = "solana"))]
+mod test_registry;
+
+#[cfg(not(target_os = "solana"))]
+pub use test_registry::register_test_utxo_info;
+
+// -----------------------------------------------------------------------------
+// meta_to_info implementation
+// -----------------------------------------------------------------------------
+/// Convert a [`UtxoMeta`] into a full [`UtxoInfo`] while compiling for the
+/// Solana BPF target we rely on the real on-chain syscall; when building for
+/// the host we fall back to a lightweight stub that avoids the syscall.
+#[cfg(target_os = "solana")]
+pub fn meta_to_info(meta: &UtxoMeta) -> Result<UtxoInfo, ProgramError> {
+    UtxoInfo::try_from(meta)
+}
+
+#[cfg(not(target_os = "solana"))]
+pub fn meta_to_info(meta: &UtxoMeta) -> Result<UtxoInfo, ProgramError> {
+    // If the test registered a rich UtxoInfo for this meta, use it.
+    if let Some(info) = test_registry::lookup(meta) {
+        return Ok(info);
+    }
+
+    // Fallback: minimal stub with just the metadata.  Value/rune information
+    // will be default-initialised; predicates depending on those will fail.
+    let mut info = UtxoInfo::default();
+    info.meta = meta.clone();
+    Ok(info)
+}
 
 pub mod error;
 pub use error::ErrorCode;
@@ -88,16 +121,16 @@ pub trait TryFromUtxos<'utxos>: Sized {
     /// it generic (`'any`) and only bind the *reference* itself to `'accs`.
     type Accs<'any>: saturn_account_parser::Accounts<'any>;
 
-    /// Parse and validate a slice of [`UtxoInfo`].
+    /// Parse and validate a slice of [`UtxoMeta`].
+    ///
+    /// * `accounts`
     ///
     /// * `accounts` – already-validated account struct (borrowed for the
     ///   duration of the call only).
-    /// * `utxos` – slice of UTXOs that will be referenced by the returned
-    ///   struct; its lifetime `'utxos` is fully independent from the account
-    ///   borrow lifetime.
+    /// * `utxos` – slice of UTXO metadata to parse.
     fn try_utxos<'accs, 'info2>(
         accounts: &'accs Self::Accs<'info2>,
-        utxos: &'utxos [saturn_bitcoin_transactions::utxo_info::UtxoInfo],
+        utxos: &'utxos [arch_program::utxo::UtxoMeta],
     ) -> Result<Self, ProgramError>;
 }
 
@@ -109,7 +142,7 @@ pub trait TryFromUtxos<'utxos>: Sized {
 /// use saturn_utxo_parser::{UtxoParser, TryFromUtxos};
 ///
 /// #[derive(UtxoParser)]
-/// struct MyParser<'a> {
+/// struct MyParser {
 ///     // ... fields with #[utxo(...)] attributes
 /// }
 /// ```

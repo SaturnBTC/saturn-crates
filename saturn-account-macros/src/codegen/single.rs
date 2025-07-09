@@ -51,12 +51,26 @@ pub(crate) fn generate_single_binding(
     // Determine allocation size
     let space_ts = if let Some(space_expr) = &cfg.space {
         quote! { (#space_expr as u64) }
+    } else if cfg.is_zero_copy {
+        // Reserve extra 8 bytes for the discriminator when zero-copy
+        quote! { (core::mem::size_of::<#inner_ty_ts>() + 8) as u64 }
     } else {
         quote! { core::mem::size_of::<#inner_ty_ts>() as u64 }
     };
 
     // Treat both `init` and `init_if_needed` as requiring initialisation logic.
     let is_any_init = cfg.is_init || cfg.is_init_if_needed;
+
+    // Convenience snippet that validates explicit `owner = ...`, if provided.
+    let owner_check_snip: proc_macro2::TokenStream = if let Some(owner_expr) = &cfg.owner {
+        quote! {
+            if acc_info_tmp.owner != &#owner_expr {
+                return Err(arch_program::program_error::ProgramError::IncorrectProgramId);
+            }
+        }
+    } else {
+        proc_macro2::TokenStream::new()
+    };
 
     if cfg.is_realloc {
         generate_single_realloc(
@@ -66,6 +80,7 @@ pub(crate) fn generate_single_binding(
             inner_ty_ts,
             space_ts,
             payer_tok_opt,
+            owner_check_snip.clone(),
         )
     } else if cfg.is_zero_copy {
         generate_single_zero_copy(
@@ -76,6 +91,7 @@ pub(crate) fn generate_single_binding(
             space_ts,
             payer_tok_opt,
             owner_tok_opt,
+            owner_check_snip.clone(),
         )
     } else if is_any_init {
         generate_single_borsh_init(
@@ -86,6 +102,7 @@ pub(crate) fn generate_single_binding(
             space_ts,
             payer_tok_opt,
             owner_tok_opt,
+            owner_check_snip.clone(),
         )
     } else {
         generate_single_default(
@@ -96,6 +113,7 @@ pub(crate) fn generate_single_binding(
             signer_tok,
             writable_tok,
             address_tok,
+            owner_check_snip,
         )
     }
 }
@@ -109,7 +127,13 @@ fn generate_single_zero_copy(
     space_ts: TokenStream,
     payer_tok_opt: Option<TokenStream>,
     owner_tok_opt: Option<TokenStream>,
+    owner_check_snip: TokenStream,
 ) -> TokenStream {
+    let loader_ty_ts: TokenStream =
+        quote! { saturn_account_parser::codec::AccountLoader::<#inner_ty_ts> };
+
+    let loader_expr = quote! { #loader_ty_ts ::new(acc_info_tmp) };
+
     if cfg.is_init || cfg.is_init_if_needed {
         let payer_expr = payer_tok_opt.as_ref().expect("payer required");
         let owner_expr = owner_tok_opt.as_ref().expect("program_id required");
@@ -128,6 +152,7 @@ fn generate_single_zero_copy(
             let program_id_expr = cfg.program_id.as_ref().unwrap();
             quote! {
                 let acc_info_tmp = { #fetch_account };
+                #owner_check_snip
                 idx += 1;
 
                 let already_initialised = *acc_info_tmp.owner == #owner_expr;
@@ -167,7 +192,7 @@ fn generate_single_zero_copy(
                     #already_init_guard
                 }
 
-                let loader = saturn_account_parser::codec::ZeroCopyAccount::<#inner_ty_ts>::new(acc_info_tmp);
+                let loader = #loader_expr;
                 if !already_initialised {
                     loader.load_init()?;
                 }
@@ -177,6 +202,7 @@ fn generate_single_zero_copy(
             // ---------------- Non-PDA + zero-copy + init ----------------
             quote! {
                 let acc_info_tmp = { #fetch_account };
+                #owner_check_snip
                 idx += 1;
 
                 let already_initialised = *acc_info_tmp.owner == #owner_expr;
@@ -203,7 +229,7 @@ fn generate_single_zero_copy(
                     #already_init_guard
                 }
 
-                let loader = saturn_account_parser::codec::ZeroCopyAccount::<#inner_ty_ts>::new(acc_info_tmp);
+                let loader = #loader_expr;
                 if !already_initialised {
                     loader.load_init()?;
                 }
@@ -214,8 +240,9 @@ fn generate_single_zero_copy(
         // ---------------- zero-copy (no init) ----------------
         quote! {
             let acc_info_tmp = { #fetch_account };
+            #owner_check_snip
             idx += 1;
-            let #ident = saturn_account_parser::codec::ZeroCopyAccount::<#inner_ty_ts>::new(acc_info_tmp);
+            let #ident = #loader_expr;
         }
     }
 }
@@ -229,6 +256,7 @@ fn generate_single_borsh_init(
     space_ts: TokenStream,
     payer_tok_opt: Option<TokenStream>,
     owner_tok_opt: Option<TokenStream>,
+    owner_check_snip: TokenStream,
 ) -> TokenStream {
     let payer_expr = payer_tok_opt.as_ref().expect("payer required");
     let owner_expr = owner_tok_opt.as_ref().expect("program_id required");
@@ -247,6 +275,7 @@ fn generate_single_borsh_init(
         let program_id_expr = cfg.program_id.as_ref().unwrap();
         quote! {
             let acc_info_tmp = { #fetch_account };
+            #owner_check_snip
             idx += 1;
 
             let already_initialised = *acc_info_tmp.owner == #owner_expr;
@@ -284,15 +313,16 @@ fn generate_single_borsh_init(
                 #already_init_guard
             }
             let #ident = if already_initialised {
-                saturn_account_parser::codec::BorshAccount::<#inner_ty_ts>::load(acc_info_tmp)?
+                saturn_account_parser::codec::Account::<#inner_ty_ts>::load(acc_info_tmp)?
             } else {
-                saturn_account_parser::codec::BorshAccount::<#inner_ty_ts>::init(acc_info_tmp)?
+                saturn_account_parser::codec::Account::<#inner_ty_ts>::init(acc_info_tmp)?
             };
         }
     } else {
         // ---------------- Non-PDA + Borsh + init ----------------
         quote! {
             let acc_info_tmp = { #fetch_account };
+            #owner_check_snip
             idx += 1;
 
             let already_initialised = *acc_info_tmp.owner == #owner_expr;
@@ -318,9 +348,9 @@ fn generate_single_borsh_init(
                 #already_init_guard
             }
             let #ident = if already_initialised {
-                saturn_account_parser::codec::BorshAccount::<#inner_ty_ts>::load(acc_info_tmp)?
+                saturn_account_parser::codec::Account::<#inner_ty_ts>::load(acc_info_tmp)?
             } else {
-                saturn_account_parser::codec::BorshAccount::<#inner_ty_ts>::init(acc_info_tmp)?
+                saturn_account_parser::codec::Account::<#inner_ty_ts>::init(acc_info_tmp)?
             };
         }
     }
@@ -334,37 +364,84 @@ fn generate_single_realloc(
     inner_ty_ts: TokenStream,
     space_ts: TokenStream,
     payer_tok_opt: Option<TokenStream>,
+    owner_check_snip: TokenStream,
 ) -> TokenStream {
-    let _payer_expr = payer_tok_opt.as_ref().expect("payer required for realloc");
+    // Common snippet: CPI to system_program::allocate before local pointer change.
+    let allocate_cpi_ts = if cfg.seeds.is_some() {
+        // PDA path – need invoke_signed with bump.
+        let seeds_expr = cfg.seeds.as_ref().unwrap();
+        let program_id_expr = cfg
+            .program_id
+            .as_ref()
+            .expect("program_id required when seeds provided");
 
-    // Realloc path differs for zero copy vs borsh/accountinfo types.
+        quote! {
+            // Build signer_seeds = &[base_seeds, bump]
+            let base_seeds: &[&[u8]] = #seeds_expr;
+            let (_expected, bump_seed) = arch_program::pubkey::Pubkey::find_program_address(base_seeds, &#program_id_expr);
+            let bump_slice: &[u8] = &[bump_seed];
+            let signer_seeds_vec: Vec<&[u8]> = {
+                let mut v = Vec::with_capacity(base_seeds.len() + 1);
+                v.extend_from_slice(base_seeds);
+                v.push(bump_slice);
+                v
+            };
+            let signer_seeds: &[&[&[u8]]] = &[&signer_seeds_vec];
+
+            arch_program::program::invoke_signed(
+                &arch_program::system_instruction::allocate(acc_info_tmp.key, new_len as u64),
+                &[acc_info_tmp.clone()],
+                signer_seeds,
+            )?;
+        }
+    } else {
+        // Non-PDA path – account itself must be signer.
+        quote! {
+            arch_program::program::invoke(
+                &arch_program::system_instruction::allocate(acc_info_tmp.key, new_len as u64),
+                &[acc_info_tmp.clone()],
+            )?;
+        }
+    };
+
+    // Generate final tokens depending on zero-copy vs Borsh.
     if cfg.is_zero_copy {
         quote! {
             let acc_info_tmp = { #_fetch_account };
+            #owner_check_snip
             idx += 1;
 
             let new_len: usize = #space_ts as usize;
+            if new_len > acc_info_tmp.data_len() {
+                #allocate_cpi_ts
+            }
+
+            // Update local slice regardless of grow/shrink.
             if acc_info_tmp.data_len() != new_len {
                 acc_info_tmp.realloc(new_len, true)?;
             }
 
             let #ident = {
-                let loader = saturn_account_parser::codec::ZeroCopyAccount::<#inner_ty_ts>::new(acc_info_tmp);
+                let loader = saturn_account_parser::codec::AccountLoader::<#inner_ty_ts>::new(acc_info_tmp);
                 loader
             };
         }
     } else {
-        // Borsh path
         quote! {
             let acc_info_tmp = { #_fetch_account };
+            #owner_check_snip
             idx += 1;
 
             let new_len: usize = #space_ts as usize;
+            if new_len > acc_info_tmp.data_len() {
+                #allocate_cpi_ts
+            }
+
             if acc_info_tmp.data_len() != new_len {
                 acc_info_tmp.realloc(new_len, true)?;
             }
 
-            let #ident = saturn_account_parser::codec::BorshAccount::<#inner_ty_ts>::load(acc_info_tmp)?;
+            let #ident = saturn_account_parser::codec::Account::<#inner_ty_ts>::load(acc_info_tmp)?;
         }
     }
 }
@@ -378,6 +455,7 @@ fn generate_single_default(
     signer_tok: TokenStream,
     writable_tok: TokenStream,
     address_tok: TokenStream,
+    owner_check_snip: TokenStream,
 ) -> TokenStream {
     // Detect if type is AccountInfo path.
     let is_acc_info_ty = is_account_info_path(&cfg.base_ty);
@@ -398,6 +476,7 @@ fn generate_single_default(
                     #seeds_expr,
                     &#program_id_expr,
                 )?;
+                #owner_check_snip
                 idx += 1;
                 // Return the account **by value** (clone) so the user can declare `AccountInfo<'info>` directly.
                 let #ident: #inner_ty_ts = (*acc_info_tmp).clone();
@@ -411,6 +490,7 @@ fn generate_single_default(
                     #writable_tok,
                     #address_tok,
                 )?;
+                #owner_check_snip
                 idx += 1;
                 let #ident: #inner_ty_ts = (*acc_info_tmp).clone();
             }
@@ -447,8 +527,9 @@ fn generate_single_default(
 
         quote! {
             let acc_info_tmp = { #fetch_tok };
+            #owner_check_snip
             idx += 1;
-            let #ident = saturn_account_parser::codec::BorshAccount::<#inner_ty_ts>::load(acc_info_tmp)?;
+            let #ident = saturn_account_parser::codec::Account::<#inner_ty_ts>::load(acc_info_tmp)?;
         }
     }
 }
@@ -501,7 +582,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(zero_copy, init, payer = payer, program_id = arch_program::pubkey::Pubkey::default())]
-                data: saturn_account_parser::codec::ZeroCopyAccount<'info, u64>,
+                data: saturn_account_parser::codec::AccountLoader<'info, u64>,
                 #[account(signer)]
                 payer: arch_program::account::AccountInfo<'info>,
             }
@@ -518,7 +599,7 @@ mod tests {
             Some(quote!(arch_program::pubkey::Pubkey::default())),
         );
         let rendered = ts.to_string();
-        assert!(rendered.contains("ZeroCopyAccount"));
+        assert!(rendered.contains("AccountLoader"));
         assert!(rendered.contains("load_init"));
     }
 
@@ -527,7 +608,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(zero_copy, init, payer = payer, program_id = arch_program::pubkey::Pubkey::default(), seeds = &[b"seed"])]
-                data: saturn_account_parser::codec::ZeroCopyAccount<'info, u64>,
+                data: saturn_account_parser::codec::AccountLoader<'info, u64>,
                 #[account(signer)]
                 payer: arch_program::account::AccountInfo<'info>,
             }
@@ -545,7 +626,7 @@ mod tests {
         );
         let rendered = ts.to_string();
         assert!(rendered.contains("invoke_signed"));
-        assert!(rendered.contains("ZeroCopyAccount"));
+        assert!(rendered.contains("AccountLoader"));
         assert!(rendered.contains("load_init"));
     }
 
@@ -554,7 +635,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(zero_copy)]
-                data: saturn_account_parser::codec::ZeroCopyAccount<'info, u64>,
+                data: saturn_account_parser::codec::AccountLoader<'info, u64>,
             }
         };
         let parsed = crate::parser::parse_fields(extract_named_fields(&di)).expect("parse ok");
@@ -569,7 +650,7 @@ mod tests {
             None,
         );
         let rendered = ts.to_string();
-        assert!(rendered.contains("ZeroCopyAccount"));
+        assert!(rendered.contains("AccountLoader"));
         // Ensure we do NOT eagerly call load_init
         assert!(!rendered.contains("load_init"));
     }
@@ -579,7 +660,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(init, payer = payer, program_id = arch_program::pubkey::Pubkey::default(), seeds = &[b"seed"])]
-                data: saturn_account_parser::codec::BorshAccount<'info, u64>,
+                data: saturn_account_parser::codec::Account<'info, u64>,
                 #[account(signer)]
                 payer: arch_program::account::AccountInfo<'info>,
             }
@@ -597,7 +678,7 @@ mod tests {
         );
         let rendered = ts.to_string();
         assert!(rendered.contains("invoke_signed"));
-        assert!(rendered.contains("BorshAccount"));
+        assert!(rendered.contains("Account"));
         assert!(rendered.contains("init"));
     }
 
@@ -606,7 +687,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(init, payer = payer, program_id = arch_program::pubkey::Pubkey::default())]
-                data: saturn_account_parser::codec::BorshAccount<'info, u64>,
+                data: saturn_account_parser::codec::Account<'info, u64>,
                 #[account(signer)]
                 payer: arch_program::account::AccountInfo<'info>,
             }
@@ -624,7 +705,7 @@ mod tests {
         );
         let rendered = ts.to_string();
         assert!(rendered.contains("invoke(") || rendered.contains("invoke ("));
-        assert!(rendered.contains("BorshAccount"));
+        assert!(rendered.contains("Account"));
         assert!(rendered.contains("init"));
     }
 
@@ -655,7 +736,7 @@ mod tests {
     fn generates_borsh_load_non_pda_path() {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
-                data: saturn_account_parser::codec::BorshAccount<'info, u64>,
+                data: saturn_account_parser::codec::Account<'info, u64>,
             }
         };
         let parsed = crate::parser::parse_fields(extract_named_fields(&di)).expect("parse ok");
@@ -671,7 +752,7 @@ mod tests {
         );
         let rendered = ts.to_string();
         assert!(rendered.contains("get_account"));
-        assert!(rendered.contains("BorshAccount"));
+        assert!(rendered.contains("Account"));
         assert!(rendered.contains("load"));
     }
 
@@ -680,7 +761,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
-                data: saturn_account_parser::codec::BorshAccount<'info, u64>,
+                data: saturn_account_parser::codec::Account<'info, u64>,
             }
         };
         let parsed = crate::parser::parse_fields(extract_named_fields(&di)).expect("parse ok");
@@ -696,7 +777,7 @@ mod tests {
         );
         let rendered = ts.to_string();
         assert!(rendered.contains("get_pda_account"));
-        assert!(rendered.contains("BorshAccount"));
+        assert!(rendered.contains("Account"));
         assert!(rendered.contains("load"));
     }
 
@@ -706,7 +787,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(init, program_id = arch_program::pubkey::Pubkey::default())]
-                data: saturn_account_parser::codec::BorshAccount<'info, u64>,
+                data: saturn_account_parser::codec::Account<'info, u64>,
             }
         };
         let result = crate::parser::parse_fields(extract_named_fields(&di));

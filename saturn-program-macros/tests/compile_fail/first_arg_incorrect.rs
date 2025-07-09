@@ -1,12 +1,12 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use saturn_account_macros::Accounts;
-use saturn_account_parser::codec::BorshAccount;
+use saturn_account_parser::codec::Account;
 use saturn_program_macros::saturn_program;
 
 #[derive(Accounts)]
 struct DummyAccounts<'info> {
     #[account(signer)]
-    acc: BorshAccount<'info, u64>,
+    acc: Account<'info, u64>,
 }
 
 mod instruction {
@@ -17,10 +17,10 @@ mod instruction {
     }
 }
 
-#[saturn_program(instruction = "crate::instruction::Instr")]
+#[saturn_program]
 mod handlers {
     use super::*;
-    // The first argument type is incorrect: should be &mut Context
+    // The first argument type is incorrect: should be Context
     pub fn bad<'info>(
         _ctx: DummyAccounts<'info>,
         _p: u8,

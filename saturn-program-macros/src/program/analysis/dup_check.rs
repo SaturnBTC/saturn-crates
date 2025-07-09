@@ -34,6 +34,8 @@ mod tests {
         FnInfo {
             fn_ident: syn::Ident::new(name, Span::call_site()),
             acc_ty: parse_str::<syn::Path>("crate::Acc").unwrap(),
+            mod_path: Vec::new(),
+            second_param_ty: None,
         }
     }
 

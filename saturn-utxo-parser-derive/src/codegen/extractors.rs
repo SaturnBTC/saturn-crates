@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-//! Snippets that pull matching UTXOs from the `remaining` vector for each `FieldKind`.
-//!
 //! This file now contains **full** generator routines that emit exactly the same
 //! extraction semantics that the original `derive_utxo_parser_old` macro
 //! provided, but working from the crate-internal IR.  The implementation is
@@ -8,7 +5,7 @@
 //! one-to-one.
 
 use crate::codegen::predicate;
-use crate::ir::{Field, FieldKind, RunesPresence};
+use crate::ir::{Field, FieldKind};
 use quote::{format_ident, quote};
 
 /// Helper: choose the `ErrorCode` variant that should be used when the field
@@ -34,7 +31,7 @@ fn base_error_variant(attr: &crate::ir::UtxoAttr) -> proc_macro2::TokenStream {
 }
 
 /// Build the `TokenStream` that initialises the given field using a variable
-/// named `remaining` (`Vec<&UtxoInfo>`) and assuming a variable `accounts` in
+/// named `remaining` (`Vec<UtxoInfo>`) and assuming a variable `accounts` in
 /// scope.  `predicate` **must** be an expression that can be evaluated for a
 /// `utxo` identifier.
 pub fn build_extractor(
@@ -43,18 +40,31 @@ pub fn build_extractor(
 ) -> proc_macro2::TokenStream {
     let ident = &field.ident;
     let attr = &field.attr;
+    // Pre-compute the specific error variant for predicate mismatch.
     let err_variant = base_error_variant(attr);
 
     match field.kind {
         // ------------------------------------------------------------------
-        // Single reference `&'a UtxoInfo`
+        // Single `UtxoInfo`
         // ------------------------------------------------------------------
         FieldKind::Single => {
-            // Anchor handling (executed after successful extraction).
             let anchor_snippet = if let Some(anchor_ident) = &attr.anchor_ident {
                 let anchor_ident_tok = anchor_ident.clone();
                 quote! {
                     let _anchor_target = &accounts.#anchor_ident_tok;
+                    // Compile-time assertion: the anchor target for a scalar UTXO field **must** itself
+                    // be "scalar‐like", i.e. directly convertible via `ToAccountInfo`.  This produces a
+                    // clear error message such as:
+                    //     "the trait `ToAccountInfo` is not implemented for `Vec<...>`"
+                    // when the developer accidentally anchors to a `Vec` inside the `Accounts` struct.
+                    {
+                        fn _anchor_scalar_check<'info, T>(_: &T)
+                        where
+                            T: saturn_account_parser::ToAccountInfo<'info>,
+                        {
+                        }
+                        _anchor_scalar_check(_anchor_target);
+                    }
                     let _anchor_ix = arch_program::system_instruction::anchor(
                         saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                         #ident.meta.txid_big_endian(),
@@ -65,44 +75,72 @@ pub fn build_extractor(
                 quote! {}
             };
 
-            // Specialised rune-id vs rune-amount diagnostics.
-            let specialised_error_logic =
-                if attr.rune_id_expr.is_some() && attr.rune_amount_expr.is_some() {
-                    // Build predicate that checks *id only* (drop amount).
-                    let mut id_only_attr = attr.clone();
-                    id_only_attr.rune_amount_expr = None;
-                    let id_only_pred = predicate::build(&id_only_attr);
-                    quote! {
-                        let has_id_match = remaining.iter().any(|utxo| { #id_only_pred });
-                        if has_id_match {
+            // Choose correct error variant if predicate fails.
+            let err_on_mismatch = if attr.value.is_none()
+                && attr.runes.is_none()
+                && attr.rune_id_expr.is_none()
+                && attr.rune_amount_expr.is_none()
+            {
+                // No predicates – only order matters
+                quote! { ErrorCode::StrictOrderMismatch }
+            } else {
+                // Map to the specific predicate-related error
+                err_variant.clone()
+            };
+
+            // Special handling when both rune_id and rune_amount are specified to distinguish
+            // between ID vs amount mismatch at runtime.
+            let rune_mismatch_logic = if let (Some(id_expr), Some(_)) =
+                (&attr.rune_id_expr, &attr.rune_amount_expr)
+            {
+                quote! {
+                    if !(#predicate) {
+                        // Decide whether the ID matched but amount mismatched, or ID mismatched.
+                        if utxo.rune_amount(&(#id_expr)).is_some() {
                             return Err(ProgramError::Custom(ErrorCode::InvalidRuneAmount.into()));
                         } else {
                             return Err(ProgramError::Custom(ErrorCode::InvalidRuneId.into()));
                         }
                     }
-                } else {
-                    quote! { return Err(ProgramError::Custom(#err_variant.into())); }
-                };
+                }
+            } else {
+                quote! {
+                    if !(#predicate) {
+                        return Err(ProgramError::Custom(#err_on_mismatch.into()));
+                    }
+                }
+            };
 
             quote! {
-                let pos_opt = remaining.iter().position(|utxo| { #predicate });
-                let #ident = if let Some(idx) = pos_opt {
-                    remaining.remove(idx)
-                } else {
-                    #specialised_error_logic
-                };
+                if idx >= total {
+                    return Err(ProgramError::Custom(ErrorCode::MissingRequiredUtxo.into()));
+                }
+                let utxo = saturn_utxo_parser::meta_to_info(&utxos[idx])?;
+                #rune_mismatch_logic
+                let #ident = utxo;
+                idx += 1;
                 #anchor_snippet
             }
         }
         // ------------------------------------------------------------------
-        // Optional reference `Option<&'a UtxoInfo>`
+        // Optional UtxoInfo (Option)
         // ------------------------------------------------------------------
         FieldKind::Optional => {
             let anchor_snippet = if let Some(anchor_ident) = &attr.anchor_ident {
                 let anchor_ident_tok = anchor_ident.clone();
                 quote! {
-                    if let Some(__opt_utxo) = #ident {
+                    if let Some(__opt_utxo) = #ident.as_ref() {
                         let _anchor_target = &accounts.#anchor_ident_tok;
+                        // Compile-time assertion identical to the one for scalar fields – ensure the
+                        // anchor target itself is scalar and not a collection.
+                        {
+                            fn _anchor_scalar_check<'info, T>(_: &T)
+                            where
+                                T: saturn_account_parser::ToAccountInfo<'info>,
+                            {
+                            }
+                            _anchor_scalar_check(_anchor_target);
+                        }
                         let _anchor_ix = arch_program::system_instruction::anchor(
                             saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                             __opt_utxo.meta.txid_big_endian(),
@@ -115,92 +153,145 @@ pub fn build_extractor(
             };
 
             quote! {
-                let pos_opt = remaining.iter().position(|utxo| { #predicate });
-                let #ident = if let Some(idx) = pos_opt {
-                    Some(remaining.remove(idx))
-                } else {
-                    None
-                };
+                let #ident: Option<saturn_bitcoin_transactions::utxo_info::UtxoInfo> = if idx < total {
+                    let utxo = saturn_utxo_parser::meta_to_info(&utxos[idx])?;
+                    if (#predicate) {
+                        idx += 1;
+                        Some(utxo)
+                    } else {
+                        None
+                    }
+                } else { None };
                 #anchor_snippet
             }
         }
         // ------------------------------------------------------------------
-        // Fixed-length array `[&'a UtxoInfo; N]`
+        // Fixed-length Array
         // ------------------------------------------------------------------
         FieldKind::Array(len) => {
-            let len_lit = len as usize; // usize -> literal
-            let tmp_ident = format_ident!("{}_tmp", ident);
-            let anchor_loop_snippet = if let Some(anchor_ident) = &attr.anchor_ident {
+            let len_lit = len as usize;
+            // If this array UTXO field is anchored, perform a compile-time assertion that the
+            // chosen accounts field *can* be indexed.  This emits a trait-bound error that points
+            // at the macro input rather than a deep generated loop, giving the user a clearer
+            // diagnostic ("anchor target `foo` must implement Index<usize>").
+            let anchor_preflight = if let Some(anchor_ident) = &attr.anchor_ident {
                 let anchor_ident_tok = anchor_ident.clone();
                 quote! {
-                    let _anchor_target = &accounts.#anchor_ident_tok[i];
-                    let _anchor_ix = arch_program::system_instruction::anchor(
-                        saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
-                        utxo_ref.meta.txid_big_endian(),
-                        utxo_ref.meta.vout(),
-                    );
+                    // Compile-time assertion helper – never executed at runtime.
+                    let _ = {
+                        fn _assert_indexable<T: core::ops::Index<usize>>(_t: &T) {}
+                        _assert_indexable(&accounts.#anchor_ident_tok);
+                    };
                 }
             } else {
                 quote! {}
             };
+            // Build per-element initialisation blocks.
+            let mut element_blocks: Vec<proc_macro2::TokenStream> = Vec::new();
+            for i in 0..len_lit {
+                let anchor_stmt = if let Some(anchor_ident) = &attr.anchor_ident {
+                    let anchor_ident_tok = anchor_ident.clone();
+                    quote! {
+                        let _anchor_target = &accounts.#anchor_ident_tok[#i];
+                        let _anchor_ix = arch_program::system_instruction::anchor(
+                            saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
+                            utxo.meta.txid_big_endian(),
+                            utxo.meta.vout(),
+                        );
+                    }
+                } else {
+                    quote! {}
+                };
 
+                element_blocks.push(quote! {
+                    {
+                        let utxo = saturn_utxo_parser::meta_to_info(&utxos[idx + #i])?;
+                        if !(#predicate) {
+                            return Err(ProgramError::Custom(#err_variant.into()));
+                        }
+                        #anchor_stmt
+                        utxo
+                    }
+                });
+            }
+
+            // Generate the final extractor snippet.
             quote! {
-                let mut #tmp_ident: [Option<&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo>; #len_lit] = [None; #len_lit];
-                for i in 0..#len_lit {
-                    let pos_opt = remaining.iter().position(|utxo| { #predicate });
-                    let utxo_ref = if let Some(idx) = pos_opt {
-                        remaining.remove(idx)
-                    } else {
-                        return Err(ProgramError::Custom(#err_variant.into()));
-                    };
-                    #anchor_loop_snippet
-                    #tmp_ident[i] = Some(utxo_ref);
+                #anchor_preflight
+                // Ensure enough inputs remain.
+                if total < idx + #len_lit {
+                    return Err(ProgramError::Custom(ErrorCode::MissingRequiredUtxo.into()));
                 }
-                let #ident: [&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo; #len_lit] =
-                    #tmp_ident.map(|o| o.unwrap());
+                let #ident: [saturn_bitcoin_transactions::utxo_info::UtxoInfo; #len_lit] = [
+                    #( #element_blocks ),*
+                ];
+                idx += #len_lit;
             }
         }
         // ------------------------------------------------------------------
-        // Vec<&'a UtxoInfo>
+        // Vec
         // ------------------------------------------------------------------
         FieldKind::Vec => {
             if let Some(anchor_ident) = &attr.anchor_ident {
-                // Vec + anchor (no rest)
                 let anchor_ident_tok = anchor_ident.clone();
+                // Compile-time assertion identical to the Array case – the accounts field must
+                // support indexing.
+                let anchor_preflight = quote! {
+                    let _ = {
+                        fn _assert_indexable<T: core::ops::Index<usize>>(_t: &T) {}
+                        _assert_indexable(&accounts.#anchor_ident_tok);
+                    };
+                };
                 quote! {
+                    #anchor_preflight
                     let target_len = accounts.#anchor_ident_tok.len();
-                    let mut #ident: Vec<&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo> =
-                        Vec::with_capacity(target_len);
+                    let mut #ident: Vec<saturn_bitcoin_transactions::utxo_info::UtxoInfo> = Vec::with_capacity(target_len);
                     for i in 0..target_len {
-                        let pos_opt = remaining.iter().position(|utxo| { #predicate });
-                        let utxo_ref = if let Some(idx) = pos_opt {
-                            remaining.remove(idx)
-                        } else {
+                        if idx >= total {
+                            return Err(ProgramError::Custom(ErrorCode::MissingRequiredUtxo.into()));
+                        }
+                        let utxo = saturn_utxo_parser::meta_to_info(&utxos[idx])?;
+                        if !(#predicate) {
                             return Err(ProgramError::Custom(#err_variant.into()));
-                        };
+                        }
                         let _anchor_target = &accounts.#anchor_ident_tok[i];
                         let _anchor_ix = arch_program::system_instruction::anchor(
                             saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
-                            utxo_ref.meta.txid_big_endian(),
-                            utxo_ref.meta.vout(),
+                            utxo.meta.txid_big_endian(),
+                            utxo.meta.vout(),
                         );
-                        #ident.push(utxo_ref);
+                        #ident.push(utxo);
+                        idx += 1;
                     }
                 }
             } else if attr.rest {
-                // Catch-all rest Vec.
+                // `#[utxo(rest)]` must still flag *unexpected* inputs. We therefore
+                // walk over the remaining slice, *collect* those matching the
+                // predicate, but advance the main cursor only for the ones we
+                // actually consumed. That leaves non-matching inputs in place so
+                // the final leftover check can emit `UnexpectedExtraUtxos`.
                 quote! {
-                    let mut #ident: Vec<&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo> = Vec::new();
-                    remaining.retain(|utxo| {
-                        if { #predicate } {
-                            #ident.push(*utxo);
-                            false
-                        } else { true }
-                    });
+                    let mut #ident: Vec<saturn_bitcoin_transactions::utxo_info::UtxoInfo> = Vec::new();
+
+                    // Remember where the rest segment starts.
+                    let start_idx = idx;
+                    let mut consumed: usize = 0;
+
+                    for i in start_idx..total {
+                        let utxo = saturn_utxo_parser::meta_to_info(&utxos[i])?;
+                        if (#predicate) {
+                            #ident.push(utxo);
+                            consumed += 1;
+                        }
+                    }
+
+                    // Mark only the captured UTXOs as consumed; any others remain
+                    // un-consumed and will trigger the leftover-inputs check.
+                    idx += consumed;
                 }
             } else {
-                // Should be unreachable due to validation, but keep a safe-guard.
-                quote! { compile_error!("Vec field must be either `rest` or `anchor`."); }
+                syn::Error::new(field.span, "Vec field must be either `rest` or `anchor`")
+                    .to_compile_error()
             }
         }
     }

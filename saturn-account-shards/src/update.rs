@@ -22,6 +22,7 @@ use crate::shard_handle::ShardHandle;
 use crate::shard_set::{Selected as ShardSetSelected, ShardSet};
 
 use bytemuck::{Pod, Zeroable};
+use saturn_account_parser::codec::zero_copy::Discriminator;
 
 use bitcoin::hashes::sha256d::Hash as Sha256dHash;
 use bitcoin::hashes::Hash as _;
@@ -41,7 +42,7 @@ fn remove_utxos_from_shards<'info, RS, U, S, const MAX_SEL: usize>(
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + Pod + Zeroable + 'static,
+    S: StateShard<U, RS> + Pod + Zeroable + Discriminator + 'static,
 {
     for utxo_to_remove in utxos_to_remove {
         for &idx in shard_indexes {
@@ -72,7 +73,7 @@ fn select_best_shard_to_add_btc_to<'info, RS, U, S, const MAX_SEL: usize>(
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + Pod + Zeroable + 'static,
+    S: StateShard<U, RS> + Pod + Zeroable + Discriminator + 'static,
 {
     let mut best_idx: Option<usize> = None;
     let mut smallest_total: u64 = u64::MAX;
@@ -108,7 +109,7 @@ fn update_shards_utxos<'info, RS, U, S, const MAX_SEL: usize>(
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + Pod + Zeroable + 'static,
+    S: StateShard<U, RS> + Pod + Zeroable + Discriminator + 'static,
 {
     // 1. Remove old UTXOs first.
     remove_utxos_from_shards::<RS, U, S, MAX_SEL>(shard_set, shard_indexes, utxos_to_remove)?;
@@ -201,7 +202,7 @@ pub fn update_shards_after_transaction<
 where
     RS: FixedCapacitySet<Item = RuneAmount> + Default,
     U: UtxoInfoTrait<RS>,
-    S: StateShard<U, RS> + Pod + Zeroable + 'static,
+    S: StateShard<U, RS> + Pod + Zeroable + Discriminator + 'static,
 {
     // ---------------------------------------------------------------------
     // 1. Identify program-owned UTXOs that were spent/created.

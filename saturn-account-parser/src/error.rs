@@ -19,6 +19,8 @@ pub enum ErrorCode {
     AccountNotFound,
     #[error("The provided PDA does not match the expected address derived from the given seeds")]
     InvalidPda,
+    #[error("The account's public key did not match the expected address")]
+    InvalidAccountKey,
 }
 
 pub type Result<T> = core::result::Result<T, ProgramError>;

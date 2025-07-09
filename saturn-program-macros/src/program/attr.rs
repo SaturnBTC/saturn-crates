@@ -2,6 +2,13 @@ use proc_macro2::TokenStream;
 use syn::parse::Parser;
 use syn::{punctuated::Punctuated, Error, Lit, Meta, Path};
 
+/// Upper bounds used to validate `btc_tx_cfg` numeric parameters.  These are
+/// intentionally conservative to avoid generating gigantic const-generic
+/// instantiations that blow up compile-time memory usage or LLVM IR size.
+/// Tune them as the runtime implementation evolves.
+const MAX_INPUTS_TO_SIGN_LIMIT: usize = 64;
+const MAX_MODIFIED_ACCOUNTS_LIMIT: usize = 64;
+
 /// Bitcoin-transaction specific configuration parsed from the attribute list.
 #[derive(Default, Clone)]
 pub struct BtcTxCfg {
@@ -14,7 +21,6 @@ pub struct BtcTxCfg {
 /// Result of parsing the procedural macro attribute.
 #[derive(Clone)]
 pub struct AttrConfig {
-    pub instruction_path: Path,
     /// If `true`, the generated program will include Bitcoin transaction builder logic.
     /// This is enabled when a `btc_tx_cfg(..)` section is present in the attribute list.
     pub enable_bitcoin_tx: bool,
@@ -29,16 +35,16 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
     // 1. Parse attribute list into `Meta` items
     // ------------------------------------------------------------
     let parser = Punctuated::<Meta, syn::Token![,]>::parse_terminated;
+    // When the attribute is used without parentheses (e.g. `#[saturn_program]`),
+    // the incoming token stream is empty.  Treat this as the *default* configuration
+    // rather than an immediate compile-error so that the ergonomic, argument-less
+    // form continues to work.
     let attr_meta: Punctuated<Meta, syn::Token![,]> = if attr.is_empty() {
-        return Err(Error::new_spanned(
-            TokenStream::new(),
-            "expected attribute arguments",
-        ));
+        Punctuated::new()
     } else {
         parser.parse2(attr)?
     };
 
-    let mut instruction_path: Option<Path> = None;
     let mut btc_tx_cfg: BtcTxCfg = BtcTxCfg::default();
 
     // Flags used during the second pass
@@ -49,43 +55,6 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
     // ------------------------------------------------------------
     for meta in &attr_meta {
         match meta {
-            // ---------------------------
-            // instruction = "path::ToInstr"
-            // ---------------------------
-            Meta::NameValue(nv) if nv.path.is_ident("instruction") => {
-                if instruction_path.is_some() {
-                    return Err(Error::new_spanned(
-                        &nv.path,
-                        "duplicate `instruction` key; specify it only once",
-                    ));
-                }
-                match &nv.value {
-                    syn::Expr::Lit(expr_lit) => {
-                        if let Lit::Str(lit_str) = &expr_lit.lit {
-                            let p: Path = syn::parse_str(&lit_str.value())?;
-                            if p.segments.len() <= 1 {
-                                return Err(Error::new_spanned(
-                                    &nv.value,
-                                    "instruction path must be namespaced (e.g. `crate::ix::MyInstr`) – add a module prefix",
-                                ));
-                            }
-                            instruction_path = Some(p);
-                        } else {
-                            return Err(Error::new_spanned(
-                                &nv.value,
-                                "instruction value must be a string literal path",
-                            ));
-                        }
-                    }
-                    _ => {
-                        return Err(Error::new_spanned(
-                            &nv.value,
-                            "instruction value must be string literal",
-                        ));
-                    }
-                }
-            }
-
             // ---------------------------
             // btc_tx_cfg = ( ... )
             // ---------------------------
@@ -103,10 +72,25 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                 for nested in inner_meta {
                     match nested {
                         Meta::NameValue(nv) if nv.path.is_ident("max_inputs_to_sign") => {
+                            // Reject duplicates – should only appear once
+                            if btc_tx_cfg.max_inputs_to_sign.is_some() {
+                                return Err(Error::new_spanned(
+                                    &nv.path,
+                                    "duplicate `max_inputs_to_sign` key inside btc_tx_cfg",
+                                ));
+                            }
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
-                                    btc_tx_cfg.max_inputs_to_sign =
-                                        Some(int_lit.base10_parse::<usize>()?);
+                                    let value = int_lit.base10_parse::<usize>()?;
+                                    if value > MAX_INPUTS_TO_SIGN_LIMIT {
+                                        return Err(Error::new_spanned(
+                                            &nv.value,
+                                            format!(
+                                                "max_inputs_to_sign exceeds allowed maximum ({MAX_INPUTS_TO_SIGN_LIMIT})",
+                                            ),
+                                        ));
+                                    }
+                                    btc_tx_cfg.max_inputs_to_sign = Some(value);
                                 } else {
                                     return Err(Error::new_spanned(
                                         &nv.value,
@@ -121,10 +105,25 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                             }
                         }
                         Meta::NameValue(nv) if nv.path.is_ident("max_modified_accounts") => {
+                            // Reject duplicates – should only appear once
+                            if btc_tx_cfg.max_modified_accounts.is_some() {
+                                return Err(Error::new_spanned(
+                                    &nv.path,
+                                    "duplicate `max_modified_accounts` key inside btc_tx_cfg",
+                                ));
+                            }
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
-                                    btc_tx_cfg.max_modified_accounts =
-                                        Some(int_lit.base10_parse::<usize>()?);
+                                    let value = int_lit.base10_parse::<usize>()?;
+                                    if value > MAX_MODIFIED_ACCOUNTS_LIMIT {
+                                        return Err(Error::new_spanned(
+                                            &nv.value,
+                                            format!(
+                                                "max_modified_accounts exceeds allowed maximum ({MAX_MODIFIED_ACCOUNTS_LIMIT})",
+                                            ),
+                                        ));
+                                    }
+                                    btc_tx_cfg.max_modified_accounts = Some(value);
                                 } else {
                                     return Err(Error::new_spanned(
                                         &nv.value,
@@ -139,6 +138,13 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                             }
                         }
                         Meta::NameValue(nv) if nv.path.is_ident("rune_set") => {
+                            // Reject duplicates – should only appear once
+                            if btc_tx_cfg.rune_set.is_some() {
+                                return Err(Error::new_spanned(
+                                    &nv.path,
+                                    "duplicate `rune_set` key inside btc_tx_cfg",
+                                ));
+                            }
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Str(lit_str) = &expr_lit.lit {
                                     btc_tx_cfg.rune_set = Some(syn::parse_str(&lit_str.value())?);
@@ -156,6 +162,13 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                             }
                         }
                         Meta::NameValue(nv) if nv.path.is_ident("rune_capacity") => {
+                            // Reject duplicates – should only appear once
+                            if btc_tx_cfg.rune_capacity.is_some() {
+                                return Err(Error::new_spanned(
+                                    &nv.path,
+                                    "duplicate `rune_capacity` key inside btc_tx_cfg",
+                                ));
+                            }
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
                                     btc_tx_cfg.rune_capacity =
@@ -186,7 +199,7 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
             other => {
                 return Err(Error::new_spanned(
                     other,
-                    "unknown attribute key; expected `instruction` or `btc_tx_cfg`",
+                    "unknown attribute key; expected `btc_tx_cfg`",
                 ));
             }
         }
@@ -211,36 +224,37 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
             ));
         }
 
-        // Ensure exactly one of rune_set or rune_capacity is provided (they are mutually exclusive).
-        if btc_tx_cfg.rune_set.is_some() && btc_tx_cfg.rune_capacity.is_some() {
-            return Err(Error::new_spanned(
-                TokenStream::new(),
-                "btc_tx_cfg keys rune_set and rune_capacity are mutually exclusive",
-            ));
-        }
-
-        // Derive default or placeholder rune_set path when not explicitly provided.
-        if btc_tx_cfg.rune_set.is_none() {
-            if btc_tx_cfg.rune_capacity.is_some() {
-                // Placeholder – actual path resolved later by dispatcher generation.
+        // Enforce that **exactly one** of `rune_set` or `rune_capacity` is supplied.
+        match (
+            btc_tx_cfg.rune_set.is_some(),
+            btc_tx_cfg.rune_capacity.is_some(),
+        ) {
+            // User provided an explicit rune set path – nothing else to do.
+            (true, false) => {}
+            // User opted for `rune_capacity` – inject a placeholder path so later macro
+            // phases can safely `unwrap()` it. A concrete alias will be generated in the
+            // dispatcher phase.
+            (false, true) => {
                 btc_tx_cfg.rune_set = Some(syn::parse_str("RuneSet")?);
-            } else {
-                btc_tx_cfg.rune_set = Some(syn::parse_str(
-                    "saturn_bitcoin_transactions::utxo_info::SingleRuneSet",
-                )?);
+            }
+            // Both keys at once – reject.
+            (true, true) => {
+                return Err(Error::new_spanned(
+                    TokenStream::new(),
+                    "btc_tx_cfg keys rune_set and rune_capacity are mutually exclusive",
+                ));
+            }
+            // Neither key – reject and ask the user to pick one.
+            (false, false) => {
+                return Err(Error::new_spanned(
+                    TokenStream::new(),
+                    "`btc_tx_cfg` must specify exactly one of `rune_set` or `rune_capacity`",
+                ));
             }
         }
     }
 
-    let instruction_path = instruction_path.ok_or_else(|| {
-        Error::new_spanned(
-            TokenStream::new(),
-            "missing `instruction = \"Path\"` in attribute",
-        )
-    })?;
-
     Ok(AttrConfig {
-        instruction_path,
         enable_bitcoin_tx,
         btc_tx_cfg,
     })
@@ -252,100 +266,16 @@ mod tests {
     use quote::quote;
 
     #[test]
-    fn parses_minimal_instruction() {
-        let ts: proc_macro2::TokenStream = quote!(instruction = "crate::ix::Instr");
-        let cfg = parse(ts).expect("should parse");
-        assert_eq!(cfg.instruction_path.segments.last().unwrap().ident, "Instr");
-        assert!(!cfg.enable_bitcoin_tx);
-    }
-
-    #[test]
     fn parses_full_bitcoin_tx_cfg() {
-        let ts: proc_macro2::TokenStream = quote!(
-            instruction = "crate::ix::Instr",
-            btc_tx_cfg(max_inputs_to_sign = 8, max_modified_accounts = 16)
-        );
+        let ts: proc_macro2::TokenStream = quote!(btc_tx_cfg(
+            max_inputs_to_sign = 8,
+            max_modified_accounts = 16,
+            rune_capacity = 32
+        ));
         let cfg = parse(ts).expect("should parse");
         assert!(cfg.enable_bitcoin_tx);
         assert_eq!(cfg.btc_tx_cfg.max_inputs_to_sign, Some(8));
         assert_eq!(cfg.btc_tx_cfg.max_modified_accounts, Some(16));
-    }
-
-    #[test]
-    fn error_on_missing_instruction() {
-        // Missing the required `instruction = "Path"` key should error.
-        let ts: proc_macro2::TokenStream = quote!(btc_tx_cfg(
-            max_inputs_to_sign = 1,
-            max_modified_accounts = 1
-        ));
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
-    fn error_on_duplicate_instruction_key() {
-        let ts: proc_macro2::TokenStream = quote!(
-            instruction = "crate::ix::Instr",
-            instruction = "crate::ix::OtherInstr"
-        );
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
-    fn error_on_duplicate_btc_tx_cfg_section() {
-        let ts: proc_macro2::TokenStream = quote!(
-            instruction = "crate::ix::Instr",
-            btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1),
-            btc_tx_cfg(max_inputs_to_sign = 2, max_modified_accounts = 2)
-        );
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
-    fn error_on_unknown_attribute_key() {
-        let ts: proc_macro2::TokenStream = quote!(instruction = "crate::ix::Instr", foo = 42);
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
-    fn error_on_unknown_btc_tx_cfg_key() {
-        let ts: proc_macro2::TokenStream = quote!(
-            instruction = "crate::ix::Instr",
-            btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1, bar = 10)
-        );
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
-    fn error_on_instruction_path_not_namespaced() {
-        let ts: proc_macro2::TokenStream = quote!(instruction = "Instr");
-        assert!(parse(ts).is_err());
-    }
-
-    #[test]
-    fn parses_btc_tx_cfg_with_default_rune_set() {
-        let ts: proc_macro2::TokenStream = quote!(
-            instruction = "crate::ix::Instr",
-            btc_tx_cfg(max_inputs_to_sign = 4, max_modified_accounts = 8)
-        );
-        let cfg = parse(ts).expect("should parse");
-        // If rune_set not provided it should default to SingleRuneSet path
-        let expected: syn::Path =
-            syn::parse_str("saturn_bitcoin_transactions::utxo_info::SingleRuneSet").unwrap();
-        assert_eq!(cfg.btc_tx_cfg.rune_set.unwrap(), expected);
-    }
-
-    #[test]
-    fn parses_btc_tx_cfg_with_custom_rune_set() {
-        let ts: proc_macro2::TokenStream = quote!(
-            instruction = "crate::ix::Instr",
-            btc_tx_cfg(
-                max_inputs_to_sign = 2,
-                max_modified_accounts = 4,
-                rune_set = "crate::custom::RuneSet"
-            )
-        );
-        let cfg = parse(ts).expect("should parse");
-        let expected: syn::Path = syn::parse_str("crate::custom::RuneSet").unwrap();
-        assert_eq!(cfg.btc_tx_cfg.rune_set.unwrap(), expected);
+        assert_eq!(cfg.btc_tx_cfg.rune_capacity, Some(32));
     }
 }

@@ -1,0 +1,15 @@
+error[E0425]: cannot find value `ID` in the crate root
+  --> tests/compile_fail/missing_program_id.rs:18:1
+   |
+18 | #[saturn_program]
+   | ^^^^^^^^^^^^^^^^^ not found in the crate root
+   |
+   = note: this error originates in the attribute macro `saturn_program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `saturn_account_parser::Context`
+ --> tests/compile_fail/missing_program_id.rs:4:5
+  |
+4 | use saturn_account_parser::Context;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default

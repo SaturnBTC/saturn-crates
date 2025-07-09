@@ -4,7 +4,7 @@ mod parser_tests {
 
     use super::*;
     use arch_program::account::AccountInfo;
-    use saturn_account_parser::codec::BorshAccount;
+    use saturn_account_parser::codec::Account;
     use syn::{parse_quote, Data, DeriveInput, Fields};
 
     /// Local helper to extract named fields from a `DeriveInput`.
@@ -43,9 +43,9 @@ mod parser_tests {
         let di: DeriveInput = parse_quote! {
             struct Combo<'info> {
                 #[account(signer, mut)]
-                user: BorshAccount<'info, u64>,
+                user: Account<'info, u64>,
                 #[account(init, payer = user, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default(), space = 8)]
-                new_acc: BorshAccount<'info, u64>,
+                new_acc: Account<'info, u64>,
             }
         };
 
@@ -63,7 +63,7 @@ mod parser_tests {
         let di: DeriveInput = parse_quote! {
             struct Generic<'info, 'other, T: Copy> {
                 #[account(signer)]
-                owner: BorshAccount<'info, u64>,
+                owner: Account<'info, u64>,
                 #[account(len = 3)]
                 others: Vec<AccountInfo<'static>>,
                 _pd: core::marker::PhantomData<&'other T>,
@@ -80,7 +80,7 @@ mod parser_tests {
         let di: DeriveInput = parse_quote! {
             struct Order<'info> {
                 #[account(mut, signer)]
-                acc: BorshAccount<'info, u64>,
+                acc: Account<'info, u64>,
             }
         };
         let cfgs = parser::parse_fields(extract_named_fields(&di)).expect("parse ok");
@@ -95,7 +95,7 @@ mod parser_tests {
         let di: DeriveInput = parse_quote! {
             struct Unknown<'info> {
                 #[account(foo)]
-                acc: BorshAccount<'info, u64>,
+                acc: Account<'info, u64>,
             }
         };
         let err = parser::parse_fields(extract_named_fields(&di)).unwrap_err();
@@ -144,7 +144,7 @@ mod parser_tests {
     #[should_panic]
     fn parser_rejects_tuple_struct() {
         let di: DeriveInput = parse_quote! {
-            struct Tup<'info>(#[account(signer)] BorshAccount<'info, u64>);
+            struct Tup<'info>(#[account(signer)] Account<'info, u64>);
         };
         // Attempting to extract named fields will panic;
         let _ = extract_named_fields(&di);
@@ -158,7 +158,7 @@ mod parser_tests {
             enum E<'info> {
                 Variant {
                     #[account(signer)]
-                    acc: BorshAccount<'info, u64>,
+                    acc: Account<'info, u64>,
                 }
             }
         };
@@ -172,9 +172,9 @@ mod parser_tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(signer)]
-                payer: BorshAccount<'info, u64>,
+                payer: Account<'info, u64>,
                 #[account(init_if_needed, payer = payer, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
-                maybe_new: BorshAccount<'info, u64>,
+                maybe_new: Account<'info, u64>,
             }
         };
         let cfgs = parser::parse_fields(extract_named_fields(&di)).expect("parse ok");
@@ -188,7 +188,7 @@ mod parser_tests {
         let di: DeriveInput = parse_quote! {
             struct BumpTest<'info> {
                 #[account(seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
-                pda: BorshAccount<'info, u64>,
+                pda: Account<'info, u64>,
                 #[account(bump, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
                 pda_bump: u8,
             }
@@ -207,9 +207,9 @@ mod parser_tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(signer)]
-                payer: BorshAccount<'info, u64>,
+                payer: Account<'info, u64>,
                 #[account(realloc, payer = payer, space = 16)]
-                data: BorshAccount<'info, u64>,
+                data: Account<'info, u64>,
             }
         };
 

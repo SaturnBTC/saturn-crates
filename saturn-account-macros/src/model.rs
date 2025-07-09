@@ -42,4 +42,6 @@ pub struct FieldCfg {
     pub space: Option<Expr>,
     /// Optional type specified via `of = MyShard` inside the `#[account(shards)]` attribute.
     pub of_type: Option<Type>,
+    /// Optional explicit owner (`owner = <expr>`) that the account must be owned by.
+    pub owner: Option<Expr>,
 }

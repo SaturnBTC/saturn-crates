@@ -8,7 +8,6 @@ mod instruction {
 }
 
 #[saturn_program(
-    instruction = "crate::instruction::Instr",
     btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1),
     btc_tx_cfg(max_inputs_to_sign = 2, max_modified_accounts = 2)
 )]

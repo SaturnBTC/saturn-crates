@@ -1,5 +1,0 @@
-error: instruction path must be namespaced (e.g. `crate::ix::MyInstr`) – add a module prefix
-  --> tests/compile_fail/instruction_path_not_namespaced.rs:10:32
-   |
-10 | #[saturn_program(instruction = "Instr")]
-   |                                ^^^^^^^

@@ -9,9 +9,9 @@ use quote::quote;
 pub fn build(attr: &UtxoAttr) -> proc_macro2::TokenStream {
     let mut parts: Vec<proc_macro2::TokenStream> = Vec::new();
 
-    // value
-    if let Some(value) = attr.value {
-        parts.push(quote! { utxo.value == #value });
+    // value predicate: allow arbitrary expressions (consts, arithmetic, etc.).
+    if let Some(value_expr) = &attr.value {
+        parts.push(quote! { utxo.value == (#value_expr) });
     }
 
     // runes presence
@@ -24,17 +24,13 @@ pub fn build(attr: &UtxoAttr) -> proc_macro2::TokenStream {
     // rune id / amount combinations
     match (&attr.rune_id_expr, &attr.rune_amount_expr) {
         (Some(id), Some(amount)) => {
-            let id_ts: proc_macro2::TokenStream = syn::parse_str(id).expect("id expr parse");
-            let amt_ts: proc_macro2::TokenStream = syn::parse_str(amount).expect("amt expr parse");
-            parts.push(quote! { utxo.contains_exact_rune(&#id_ts, #amt_ts as u128) });
+            parts.push(quote! { utxo.contains_exact_rune(&(#id), (#amount) as u128) });
         }
         (Some(id), None) => {
-            let id_ts: proc_macro2::TokenStream = syn::parse_str(id).expect("id expr parse");
-            parts.push(quote! { utxo.rune_amount(&#id_ts).is_some() });
+            parts.push(quote! { utxo.rune_amount(&(#id)).is_some() });
         }
         (None, Some(amount)) => {
-            let amt_ts: proc_macro2::TokenStream = syn::parse_str(amount).expect("amt expr parse");
-            parts.push(quote! { utxo.total_rune_amount() == #amt_ts as u128 });
+            parts.push(quote! { utxo.total_rune_amount() == (#amount) as u128 });
         }
         _ => {}
     }
@@ -50,15 +46,16 @@ pub fn build(attr: &UtxoAttr) -> proc_macro2::TokenStream {
 mod tests {
     use super::*;
     use crate::ir::{RunesPresence, UtxoAttr};
+    use syn::parse_quote;
 
     #[test]
     fn predicate_contains_parts() {
         let mut a = UtxoAttr::default();
-        a.value = Some(10);
+        a.value = Some(parse_quote!(10));
         a.runes = Some(RunesPresence::Some);
         let ts = build(&a);
         let s = ts.to_string().replace(" ", "");
-        assert!(s.contains("utxo.value==10"));
+        assert!(s.contains("utxo.value==(10)"));
         assert!(s.contains("utxo.rune_entry_count()>0"));
     }
 }

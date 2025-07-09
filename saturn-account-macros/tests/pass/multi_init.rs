@@ -1,18 +1,18 @@
 use saturn_account_macros::Accounts;
-use saturn_account_parser::codec::BorshAccount;
+use saturn_account_parser::codec::Account;
 
 #[derive(Accounts)]
 struct MultiInit<'info> {
-    #[account(signer)]
+    #[account(signer, mut)]
     alice: arch_program::account::AccountInfo<'info>,
-    #[account(signer)]
+    #[account(signer, mut)]
     bob: arch_program::account::AccountInfo<'info>,
 
-    #[account(init, payer = alice, program_id = arch_program::pubkey::Pubkey::default())]
-    pool: BorshAccount<'info, u64>,
+    #[account(mut, init, payer = alice, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
+    pool: Account<'info, u64>,
 
-    #[account(init, payer = bob, program_id = arch_program::pubkey::Pubkey::default())]
-    vault: BorshAccount<'info, u64>,
+    #[account(mut, init, payer = bob, seeds = &[b"seed2"], program_id = arch_program::pubkey::Pubkey::default())]
+    vault: Account<'info, u64>,
 }
 
 fn main() {} 

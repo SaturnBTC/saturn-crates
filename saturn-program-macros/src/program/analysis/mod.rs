@@ -35,6 +35,12 @@ pub fn analyze(attr_cfg: &AttrConfig, item: TokenStream) -> Result<AnalysisResul
     // ------------------------------------------------------------
     let (fn_infos, mut errors) = gather::gather_fn_infos(&item_mod);
 
+    if fn_infos.iter().any(|info| !info.mod_path.is_empty()) {
+        errors.push(quote! {
+            compile_error!("#[saturn_program] does not support nested modules; all instruction handlers must live directly inside the annotated module");
+        });
+    }
+
     // ------------------------------------------------------------
     // 3. Detect duplicate variant names after convert_case transformation
     // ------------------------------------------------------------

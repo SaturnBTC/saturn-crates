@@ -1,5 +1,0 @@
-error: `realloc` field requires `payer = <account>` in #[account] attribute
- --> tests/compile_fail/realloc_without_payer.rs:6:5
-  |
-6 |     #[account(realloc, space = 16)]
-  |     ^

@@ -9,5 +9,6 @@ saturn-bitcoin-transactions = { workspace = true }
 saturn-utxo-parser-derive = { path = "../saturn-utxo-parser-derive" }
 saturn-error = { workspace = true }
 saturn-account-parser = { workspace = true }
+once_cell = "1"
 
 [features]

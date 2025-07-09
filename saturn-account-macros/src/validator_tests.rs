@@ -3,7 +3,7 @@
 
 use crate::{parser, validator};
 use arch_program::account::AccountInfo;
-use saturn_account_parser::codec::BorshAccount;
+use saturn_account_parser::codec::Account;
 use syn::{parse_quote, Data, DeriveInput, Fields};
 
 /// Extract named fields helper reused across tests.
@@ -29,7 +29,7 @@ fn validator_rejects_duplicate_identifiers() {
     let di: DeriveInput = parse_quote! {
         struct Dup<'info> {
             #[account(signer)]
-            dup: BorshAccount<'info, u64>,
+            dup: Account<'info, u64>,
             #[account(len = 1)]
             dup: Vec<AccountInfo<'static>>,
         }
@@ -46,9 +46,9 @@ fn validator_rejects_unknown_payer_field() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
             #[account(signer)]
-            payer: BorshAccount<'info, u64>,
+            payer: Account<'info, u64>,
             #[account(init, payer = ghost, program_id = arch_program::pubkey::Pubkey::default())]
-            new_acc: BorshAccount<'info, u64>,
+            new_acc: Account<'info, u64>,
         }
     };
 
@@ -63,9 +63,9 @@ fn validator_rejects_non_identifier_payer_expression() {
     let di: DeriveInput = parse_quote! {
         struct Weird<'info> {
             #[account(signer)]
-            payer: BorshAccount<'info, u64>,
+            payer: Account<'info, u64>,
             #[account(init, payer = 42, program_id = arch_program::pubkey::Pubkey::default())]
-            new_acc: BorshAccount<'info, u64>,
+            new_acc: Account<'info, u64>,
         }
     };
 
@@ -83,14 +83,14 @@ fn validator_rejects_non_identifier_payer_expression() {
 fn validator_allows_multiple_inits_with_distinct_payers() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
-            #[account(signer)]
-            alice: BorshAccount<'info, u64>,
-            #[account(signer)]
-            bob: BorshAccount<'info, u64>,
-            #[account(init, payer = alice, program_id = arch_program::pubkey::Pubkey::default())]
-            pool: BorshAccount<'info, u64>,
-            #[account(init, payer = bob, program_id = arch_program::pubkey::Pubkey::default())]
-            vault: BorshAccount<'info, u64>,
+            #[account(mut, signer)]
+            alice: Account<'info, u64>,
+            #[account(mut, signer)]
+            bob: Account<'info, u64>,
+            #[account(mut, init, payer = alice, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
+            pool: Account<'info, u64>,
+            #[account(mut, init, payer = bob, signer, program_id = arch_program::pubkey::Pubkey::default())]
+            vault: Account<'info, u64>,
         }
     };
 
@@ -98,20 +98,21 @@ fn validator_allows_multiple_inits_with_distinct_payers() {
     validator::validate(&parsed).expect("validator should accept multiple valid init accounts");
 }
 
-/// 2.5 – order independence: init field may appear before its signer payer.
+/// 2.5 – payer **must** appear before the account it funds; forward reference should error.
 #[test]
-fn validator_allows_payer_declared_after_init_field() {
+fn validator_rejects_payer_declared_after_init_field() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
-            #[account(init, payer = signer, program_id = arch_program::pubkey::Pubkey::default())]
-            new_acc: BorshAccount<'info, u64>,
-            #[account(signer)]
-            signer: BorshAccount<'info, u64>,
+            #[account(mut, init, payer = signer, program_id = arch_program::pubkey::Pubkey::default())]
+            new_acc: Account<'info, u64>,
+            #[account(mut, signer)]
+            signer: Account<'info, u64>,
         }
     };
 
     let parsed = parser::parse_fields(extract_named_fields(&di)).expect("parse ok");
-    validator::validate(&parsed).expect("validator should allow forward reference to payer");
+    let err = validator::validate(&parsed).unwrap_err();
+    assert!(err.to_string().contains("must be declared before"));
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -124,9 +125,9 @@ fn validator_rejects_payer_not_signer() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
             #[account()] // plain account, *not* signer
-            not_signer: BorshAccount<'info, u64>,
+            not_signer: Account<'info, u64>,
             #[account(init, payer = not_signer, program_id = arch_program::pubkey::Pubkey::default())]
-            new_acc: BorshAccount<'info, u64>,
+            new_acc: Account<'info, u64>,
         }
     };
 
@@ -141,7 +142,7 @@ fn validator_rejects_self_payer_reference() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
             #[account(init, payer = self_acc, program_id = arch_program::pubkey::Pubkey::default())]
-            self_acc: BorshAccount<'info, u64>,
+            self_acc: Account<'info, u64>,
         }
     };
 
@@ -155,12 +156,12 @@ fn validator_rejects_self_payer_reference() {
 fn validator_allows_multiple_inits_with_same_payer() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
-            #[account(signer)]
-            payer: BorshAccount<'info, u64>,
-            #[account(init, payer = payer, program_id = arch_program::pubkey::Pubkey::default())]
-            acc_one: BorshAccount<'info, u64>,
-            #[account(init, payer = payer, program_id = arch_program::pubkey::Pubkey::default())]
-            acc_two: BorshAccount<'info, u64>,
+            #[account(mut, signer)]
+            payer: Account<'info, u64>,
+            #[account(mut, init, payer = payer, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
+            acc_one: Account<'info, u64>,
+            #[account(mut, init, payer = payer, seeds = &[b"seed2"], program_id = arch_program::pubkey::Pubkey::default())]
+            acc_two: Account<'info, u64>,
         }
     };
 
@@ -173,10 +174,10 @@ fn validator_allows_multiple_inits_with_same_payer() {
 fn validator_allows_struct_with_no_init_fields() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
-            #[account(signer)]
-            user: BorshAccount<'info, u64>,
+            #[account(mut, signer)]
+            user: Account<'info, u64>,
             #[account(mut)]
-            data: BorshAccount<'info, u64>,
+            data: Account<'info, u64>,
         }
     };
 
@@ -189,10 +190,10 @@ fn validator_allows_struct_with_no_init_fields() {
 fn validator_rejects_multi_segment_payer_path() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
-            #[account(signer)]
-            user: BorshAccount<'info, u64>,
+            #[account(mut, signer)]
+            user: Account<'info, u64>,
             #[account(init, payer = crate::user, program_id = arch_program::pubkey::Pubkey::default())]
-            new_acc: BorshAccount<'info, u64>,
+            new_acc: Account<'info, u64>,
         }
     };
 
@@ -210,24 +211,24 @@ fn validator_allows_complex_mixed_struct() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
             // signers
-            #[account(signer)]
-            alice: BorshAccount<'info, u64>,
-            #[account(signer)]
-            bob: BorshAccount<'info, u64>,
+            #[account(mut, signer)]
+            alice: Account<'info, u64>,
+            #[account(mut, signer)]
+            bob: Account<'info, u64>,
 
             // init accounts (different ordering)
-            #[account(init, payer = bob, program_id = arch_program::pubkey::Pubkey::default())]
-            early_vault: BorshAccount<'info, u64>,
+            #[account(mut, init, payer = bob, seeds = &[b"seed2"], program_id = arch_program::pubkey::Pubkey::default())]
+            early_vault: Account<'info, u64>,
 
             // plain accounts
             #[account(mut)]
-            cfg: BorshAccount<'info, u64>,
+            cfg: Account<'info, u64>,
 
             // more init accounts referencing previous signers
-            #[account(init, payer = alice, program_id = arch_program::pubkey::Pubkey::default())]
-            pool: BorshAccount<'info, u64>,
-            #[account(init, payer = bob, program_id = arch_program::pubkey::Pubkey::default())]
-            vault_b: BorshAccount<'info, u64>,
+            #[account(mut, init, payer = alice, signer, program_id = arch_program::pubkey::Pubkey::default())]
+            pool: Account<'info, u64>,
+            #[account(mut, init, payer = bob, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
+            vault_b: Account<'info, u64>,
         }
     };
 
@@ -240,10 +241,10 @@ fn validator_allows_complex_mixed_struct() {
 fn validator_allows_init_if_needed() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
-            #[account(signer)]
-            payer: BorshAccount<'info, u64>,
-            #[account(init_if_needed, payer = payer, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
-            maybe_new: BorshAccount<'info, u64>,
+            #[account(mut, signer)]
+            payer: Account<'info, u64>,
+            #[account(mut, init_if_needed, payer = payer, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
+            maybe_new: Account<'info, u64>,
         }
     };
 
@@ -256,10 +257,10 @@ fn validator_allows_init_if_needed() {
 fn validator_allows_realloc_with_valid_payer() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
-            #[account(signer)]
-            payer: BorshAccount<'info, u64>,
-            #[account(realloc, payer = payer, space = 32)]
-            data: BorshAccount<'info, u64>,
+            #[account(mut, signer)]
+            payer: Account<'info, u64>,
+            #[account(mut, realloc, payer = payer, space = 32)]
+            data: Account<'info, u64>,
         }
     };
 
@@ -272,9 +273,9 @@ fn validator_allows_realloc_with_valid_payer() {
 fn validator_rejects_realloc_payer_not_signer() {
     let di: DeriveInput = parse_quote! {
         struct Accs<'info> {
-            payer: BorshAccount<'info, u64>,
+            payer: Account<'info, u64>,
             #[account(realloc, payer = payer, space = 64)]
-            data: BorshAccount<'info, u64>,
+            data: Account<'info, u64>,
         }
     };
 

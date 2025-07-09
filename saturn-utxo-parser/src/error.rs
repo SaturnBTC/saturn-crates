@@ -14,4 +14,8 @@ pub enum ErrorCode {
     InvalidRuneId,
     #[error("Rune amount in UTXO did not match expectation")]
     InvalidRuneAmount,
+    #[error("Duplicate UTXO meta in the provided inputs list")]
+    DuplicateUtxoMeta,
+    #[error("UTXO did not satisfy the expected predicate at its strict-order position")]
+    StrictOrderMismatch,
 }

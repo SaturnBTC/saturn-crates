@@ -1,5 +1,0 @@
-error: `init` field requires `program_id = <id>` in #[account] attribute to set the owner
- --> tests/compile_fail/init_without_program_id.rs:6:5
-  |
-6 |     #[account(init, payer = payer)]
-  |     ^

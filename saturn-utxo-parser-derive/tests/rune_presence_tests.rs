@@ -7,27 +7,38 @@ use arch_program::utxo::UtxoMeta;
 use saturn_account_parser::Accounts as AccountsTrait;
 use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
 use saturn_bitcoin_transactions::utxo_info::UtxoInfoTrait;
+use saturn_utxo_parser::register_test_utxo_info;
 use saturn_utxo_parser::{ErrorCode, TryFromUtxos};
 use saturn_utxo_parser_derive::UtxoParser;
 
-fn create_utxo(value: u64, txid_byte: u8, vout: u32) -> UtxoInfo {
+fn create_utxo(value: u64, txid_byte: u8, vout: u32) -> UtxoMeta {
     let txid = [txid_byte; 32];
-    UtxoInfo {
-        meta: UtxoMeta::from(txid, vout),
+    let meta = UtxoMeta::from(txid, vout);
+    let info = UtxoInfo::<saturn_bitcoin_transactions::utxo_info::SingleRuneSet> {
+        meta: meta.clone(),
         value,
         ..Default::default()
-    }
+    };
+    register_test_utxo_info(info);
+    meta
 }
 
-fn create_utxo_with_rune(value: u64, txid_byte: u8, vout: u32, amount: u128) -> UtxoInfo {
-    let mut utxo = create_utxo(value, txid_byte, vout);
+fn create_utxo_with_rune(value: u64, txid_byte: u8, vout: u32, amount: u128) -> UtxoMeta {
+    let txid = [txid_byte; 32];
+    let meta = UtxoMeta::from(txid, vout);
+    let mut info = UtxoInfo::<saturn_bitcoin_transactions::utxo_info::SingleRuneSet> {
+        meta: meta.clone(),
+        value,
+        ..Default::default()
+    };
     let rune = RuneAmount {
         id: RuneId::new(777, 0),
         amount,
     };
     // Insert rune entry (capacity is 1 for SingleRuneSet)
-    utxo.runes_mut().insert(rune).unwrap();
-    utxo
+    info.runes_mut().insert(rune).unwrap();
+    register_test_utxo_info(info);
+    meta
 }
 
 // -----------------------------------------------------------------------------
@@ -36,23 +47,23 @@ fn create_utxo_with_rune(value: u64, txid_byte: u8, vout: u32, amount: u128) -> 
 
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(DummyAccounts)]
-struct RuneNone<'a> {
+struct RuneNone {
     #[utxo(runes = "none")]
-    no_rune_utxo: &'a UtxoInfo,
+    no_rune_utxo: UtxoInfo,
 }
 
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(DummyAccounts)]
-struct RuneSome<'a> {
+struct RuneSome {
     #[utxo(runes = "some")]
-    some_rune_utxo: &'a UtxoInfo,
+    some_rune_utxo: UtxoInfo,
 }
 
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(DummyAccounts)]
-struct RuneAny<'a> {
+struct RuneAny {
     #[utxo(runes = "any")]
-    any_utxo: &'a UtxoInfo,
+    any_utxo: UtxoInfo,
 }
 
 // -----------------------------------------------------------------------------

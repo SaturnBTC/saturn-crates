@@ -1,0 +1,5 @@
+error: `realloc` PDA account cannot be marked `signer` - the program signs via seeds
+  --> tests/compile_fail/realloc_pda_with_signer.rs:10:5
+   |
+10 |     pda_data: Account<'info, u64>,
+   |     ^^^^^^^^

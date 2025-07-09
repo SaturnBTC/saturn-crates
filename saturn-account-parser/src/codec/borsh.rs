@@ -1,7 +1,7 @@
 //! Borsh codec and Anchor-style account wrapper.
 //!
 //! This module exposes [`BorshCodec`] for low-level (de)serialization and
-//! [`Account`] / [`BorshAccount`] for ergonomic access similar to Anchor's
+//! [`Account`] for ergonomic access similar to Anchor's
 //! `Account<'info, T>` type.
 //!
 //! The codec copies data to and from the account buffer, making it suitable
@@ -117,10 +117,7 @@ where
     }
 }
 
-/// Alias so callers can write `BorshAccount<'info, T>` like in Anchor.
-pub type BorshAccount<'a, T> = Account<'a, T>;
-
-// Allow treating `BorshAccount` as an `AccountInfo` via `AsRef`.
+// Allow treating `Account` as an `AccountInfo` via `AsRef`.
 impl<'a, T> AsRef<arch_program::account::AccountInfo<'a>> for Account<'a, T>
 where
     T: BorshSerialize + BorshDeserialize,

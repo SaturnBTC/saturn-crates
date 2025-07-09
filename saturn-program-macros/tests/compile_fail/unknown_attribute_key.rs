@@ -7,7 +7,7 @@ mod instruction {
     }
 }
 
-#[saturn_program(foo = 1, instruction = "crate::instruction::Instr")]
+#[saturn_program(foo = 1)]
 mod handlers {}
 
 fn main() {} 

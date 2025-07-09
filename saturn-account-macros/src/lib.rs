@@ -8,7 +8,6 @@ mod codegen;
 mod parser;
 mod validator;
 
-
 /// # `Accounts` derive macro
 ///
 /// This crate provides the [`Accounts`] procedural macro which automatically
@@ -22,7 +21,7 @@ mod validator;
 ///
 /// ```ignore
 /// use saturn_account_macros::Accounts;
-/// use arch_program::account::{AccountInfo, BorshAccount};
+/// use arch_program::account::{AccountInfo, Account};
 /// use arch_program::pubkey::Pubkey;
 ///
 /// #[derive(Accounts)]
@@ -33,11 +32,11 @@ mod validator;
 ///
 ///     /// Source token account (must be writable and of the expected SPL type).
 ///     #[account(mut, of = TokenAccount)]
-///     from: BorshAccount<'info, TokenAccount>,
+///     from: Account<'info, TokenAccount>,
 ///
 ///     /// Destination token account.
 ///     #[account(mut, of = TokenAccount)]
-///     to: BorshAccount<'info, TokenAccount>,
+///     to: Account<'info, TokenAccount>,
 ///
 ///     /// SPL-Token program that owns the token accounts.
 ///     token_program: AccountInfo<'info>,
@@ -158,7 +157,7 @@ pub fn derive_accounts(input: TokenStream) -> TokenStream {
 mod tests {
     use super::*;
     use arch_program::account::AccountInfo;
-    use saturn_account_parser::codec::BorshAccount;
+    use saturn_account_parser::codec::Account;
     use syn::{parse_quote, Data, DeriveInput, Fields};
 
     /// Helper that extracts the `named` fields of the input struct.
@@ -180,7 +179,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct MyAccounts<'info> {
                 #[account(signer)]
-                caller: BorshAccount<'info, u64>,
+                caller: Account<'info, u64>,
                 #[account(len = 2)]
                 pdas: Vec<AccountInfo<'static>>,
             }
@@ -202,15 +201,17 @@ mod tests {
     }
 
     #[test]
-    fn parser_rejects_seeds_without_program_id() {
+    fn parser_allows_seeds_without_program_id() {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(seeds = &[b"seed"])]
-                pda: BorshAccount<'info, u64>,
+                pda: Account<'info, u64>,
             }
         };
-        let err = parser::parse_fields(extract_named_fields(&di)).unwrap_err();
-        assert!(err.to_string().contains("program_id"));
+
+        // Parsing should succeed – the macro will default `program_id = crate::ID`.
+        parser::parse_fields(extract_named_fields(&di))
+            .expect("parse_fields should succeed without explicit program_id");
     }
 
     #[test]
@@ -218,7 +219,7 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 #[account(seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default(), address = arch_program::pubkey::Pubkey::default())]
-                pda: BorshAccount<'info, u64>,
+                pda: Account<'info, u64>,
             }
         };
         let err = parser::parse_fields(extract_named_fields(&di)).unwrap_err();
@@ -242,9 +243,9 @@ mod tests {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
                 // Not a signer on purpose.
-                payer: BorshAccount<'info, u64>,
+                payer: Account<'info, u64>,
                 #[account(init, payer = payer, program_id = arch_program::pubkey::Pubkey::default())]
-                new_acc: BorshAccount<'info, u64>,
+                new_acc: Account<'info, u64>,
             }
         };
         let parsed = parser::parse_fields(extract_named_fields(&di)).expect("parse ok");
@@ -256,10 +257,10 @@ mod tests {
     fn validator_allows_valid_init_structure() {
         let di: DeriveInput = parse_quote! {
             struct Accs<'info> {
-                #[account(signer)]
-                payer: BorshAccount<'info, u64>,
-                #[account(init, payer = payer, program_id = arch_program::pubkey::Pubkey::default())]
-                new_acc: BorshAccount<'info, u64>,
+                #[account(mut, signer)]
+                payer: Account<'info, u64>,
+                #[account(mut, init, payer = payer, seeds = &[b"seed"], program_id = arch_program::pubkey::Pubkey::default())]
+                new_acc: Account<'info, u64>,
             }
         };
         let parsed = parser::parse_fields(extract_named_fields(&di)).expect("parse ok");

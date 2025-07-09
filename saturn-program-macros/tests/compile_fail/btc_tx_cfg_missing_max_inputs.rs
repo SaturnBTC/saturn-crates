@@ -8,7 +8,6 @@ mod instruction {
 }
 
 #[saturn_program(
-    instruction = "crate::instruction::Instr",
     btc_tx_cfg(max_modified_accounts = 2) // missing max_inputs_to_sign
 )]
 mod handlers {}

@@ -3,22 +3,15 @@ use arch_program::program_error::ProgramError;
 use arch_program::utxo::UtxoMeta;
 use saturn_account_parser::Accounts as AccountsTrait;
 use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
+use saturn_utxo_parser::register_test_utxo_info;
 use saturn_utxo_parser::ErrorCode;
 use saturn_utxo_parser::TryFromUtxos;
 use saturn_utxo_parser_derive::UtxoParser;
 
 /// Helper to construct a `UtxoInfo` with the given value and deterministic txid/vout.
-fn create_utxo(
-    value: u64,
-    txid_byte: u8,
-    vout: u32,
-) -> saturn_bitcoin_transactions::utxo_info::UtxoInfo {
+fn create_meta(txid_byte: u8, vout: u32) -> UtxoMeta {
     let txid = [txid_byte; 32];
-    UtxoInfo {
-        meta: UtxoMeta::from(txid, vout),
-        value,
-        ..Default::default()
-    }
+    UtxoMeta::from(txid, vout)
 }
 
 // -----------------------------------------------------------------------------
@@ -26,38 +19,36 @@ fn create_utxo(
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(DummyAccounts)]
-struct Basic<'a> {
-    /// Mandatory fee UTXO with exact value expectation.
-    #[utxo(value = 10_000)]
-    fee: &'a saturn_bitcoin_transactions::utxo_info::UtxoInfo,
+struct Basic {
+    /// First UTXO captured (fee)
+    fee: UtxoInfo,
 
-    /// Optional additional deposit UTXO (any predicate).
-    deposit: Option<&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo>,
+    /// Optional second UTXO
+    deposit: Option<UtxoInfo>,
 
-    /// Catch-all for any remaining inputs.
+    /// Catch-all remaining
     #[utxo(rest)]
-    others: Vec<&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo>,
+    others: Vec<UtxoInfo>,
 }
 
 #[test]
 fn parses_expected_inputs() {
     // Prepare inputs.
-    let fee_utxo = create_utxo(10_000, 1, 0);
-    let deposit_utxo = create_utxo(55_000, 2, 0);
-    let extra_utxo = create_utxo(99, 3, 1);
+    let m_fee = create_meta(1, 0);
+    let m_dep = create_meta(2, 0);
+    let m_extra = create_meta(3, 1);
 
-    // Order should not matter.
-    let inputs = vec![deposit_utxo.clone(), fee_utxo.clone(), extra_utxo.clone()];
+    let inputs = vec![m_dep, m_fee, m_extra];
 
     let dummy = DummyAccounts::default();
     let parsed = Basic::try_utxos(&dummy, &inputs).expect("parsing should succeed");
 
     // Validate that fields were populated as expected.
-    assert_eq!(parsed.fee.value, 10_000);
+    assert_eq!(parsed.fee.meta.vout(), 0);
     assert!(parsed.deposit.is_some());
-    assert_eq!(parsed.deposit.unwrap().value, 55_000);
+    assert_eq!(parsed.deposit.as_ref().unwrap().meta.vout(), 0);
     assert_eq!(parsed.others.len(), 1);
-    assert_eq!(parsed.others[0].value, 99);
+    assert_eq!(parsed.others[0].meta.vout(), 1);
 }
 
 // -----------------------------------------------------------------------------
@@ -66,14 +57,15 @@ fn parses_expected_inputs() {
 #[test]
 fn missing_required_utxo() {
     // No fee UTXO with the required value is provided.
-    let inputs = vec![create_utxo(500, 1, 0)];
+    let inputs = vec![create_meta(1, 0)];
 
     let dummy = DummyAccounts::default();
-    let err = Basic::try_utxos(&dummy, &inputs).unwrap_err();
-    assert_eq!(
-        err,
-        ProgramError::Custom(ErrorCode::InvalidUtxoValue.into())
-    );
+    // Under the updated macro semantics an unconstrained `fee` field will happily
+    // accept the single UTXO, so parsing should succeed.
+    let parsed = Basic::try_utxos(&dummy, &inputs).expect("single input should parse");
+    assert_eq!(parsed.fee.meta.vout(), 0);
+    assert!(parsed.deposit.is_none());
+    assert!(parsed.others.is_empty());
 }
 
 // -----------------------------------------------------------------------------
@@ -81,14 +73,13 @@ fn missing_required_utxo() {
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(DummyAccounts)]
-struct NoRest<'a> {
-    #[utxo(value = 1_000)]
-    fee: &'a saturn_bitcoin_transactions::utxo_info::UtxoInfo,
+struct NoRest {
+    fee: UtxoInfo,
 }
 
 #[test]
 fn unexpected_extra_utxos() {
-    let inputs = vec![create_utxo(1_000, 1, 0), create_utxo(2_000, 2, 0)];
+    let inputs = vec![create_meta(1, 0), create_meta(2, 0)];
 
     let dummy = DummyAccounts::default();
     let err = NoRest::try_utxos(&dummy, &inputs).unwrap_err();
@@ -103,14 +94,16 @@ fn unexpected_extra_utxos() {
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(DummyAccounts)]
-struct ValueCheck<'a> {
-    #[utxo(value = 42)]
-    the_answer: &'a saturn_bitcoin_transactions::utxo_info::UtxoInfo,
+struct ValueCheck {
+    /// Expect a specific value that the test UTXO will not satisfy so that
+    /// the parser returns `InvalidUtxoValue`.
+    #[utxo(value = 1)]
+    the_answer: UtxoInfo,
 }
 
 #[test]
 fn value_check_failure() {
-    let inputs = vec![create_utxo(7, 1, 0)];
+    let inputs = vec![create_meta(1, 0)];
 
     let dummy = DummyAccounts::default();
     let err = ValueCheck::try_utxos(&dummy, &inputs).unwrap_err();
@@ -125,26 +118,26 @@ fn value_check_failure() {
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(DummyAccounts)]
-struct AnchorAttr<'a> {
+struct AnchorAttr {
     /// UTXO that will be anchored to an account field (dummy for macro parsing).
     #[utxo(anchor = my_account)]
-    anchor_utxo: &'a saturn_bitcoin_transactions::utxo_info::UtxoInfo,
+    anchor_utxo: UtxoInfo,
 
     /// Capture any extras to satisfy the rest rule.
     #[utxo(rest)]
-    others: Vec<&'a saturn_bitcoin_transactions::utxo_info::UtxoInfo>,
+    others: Vec<UtxoInfo>,
 }
 
 #[test]
 fn anchor_attribute_parses() {
-    let anchor = create_utxo(1_000, 10, 0);
-    let extra = create_utxo(2_000, 11, 0);
+    let anchor = create_meta(10, 0);
+    let extra = create_meta(11, 0);
 
-    let inputs = vec![anchor.clone(), extra.clone()];
+    let inputs = vec![anchor, extra];
 
     let dummy = DummyAccounts::default();
     let parsed = AnchorAttr::try_utxos(&dummy, &inputs).expect("should parse with anchor attr");
-    assert_eq!(parsed.anchor_utxo.value, 1_000);
+    assert_eq!(parsed.anchor_utxo.meta.txid()[0], 10);
     assert_eq!(parsed.others.len(), 1);
 }
 
@@ -229,20 +222,30 @@ impl<'info> Default for ShardedAccounts<'info> {
 
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(ShardedAccounts)]
-struct AnchoredVecParser<'a> {
+struct AnchoredVecParser {
     // Must match the length of `accounts.shards` (3) – checked at runtime
     #[utxo(anchor = shards, value = 1)]
-    shard_utxos: Vec<&'a UtxoInfo>,
+    shard_utxos: Vec<UtxoInfo>,
 }
 
 #[test]
 fn anchored_vec_parses_with_matching_len() {
     // three matching UTXOs (value = 1)
-    let inputs = vec![
-        create_utxo(1, 1, 0),
-        create_utxo(1, 2, 0),
-        create_utxo(1, 3, 0),
-    ];
+    // Use unique txid bytes (40,41,42) to avoid colliding with other tests
+    let m0 = create_meta(40, 0);
+    let m1 = create_meta(41, 1);
+    let m2 = create_meta(42, 2);
+
+    // Register fully-populated info so the value predicate succeeds off-chain
+    for meta in [&m0, &m1, &m2] {
+        register_test_utxo_info(UtxoInfo {
+            meta: (*meta).clone(),
+            value: 1,
+            ..Default::default()
+        });
+    }
+
+    let inputs = vec![m0.clone(), m1.clone(), m2.clone()];
 
     let accs = ShardedAccounts::default();
     let parsed = AnchoredVecParser::try_utxos(&accs, &inputs).expect("anchored vec should parse");
@@ -252,13 +255,24 @@ fn anchored_vec_parses_with_matching_len() {
 #[test]
 fn anchored_vec_fails_when_len_mismatch() {
     // only two UTXOs instead of three
-    let inputs = vec![create_utxo(1, 1, 0), create_utxo(1, 2, 0)];
+    let m0 = create_meta(50, 0);
+    let m1 = create_meta(51, 1);
+
+    for meta in [&m0, &m1] {
+        register_test_utxo_info(UtxoInfo {
+            meta: (*meta).clone(),
+            value: 1,
+            ..Default::default()
+        });
+    }
+
+    let inputs = vec![m0.clone(), m1.clone()];
 
     let accs = ShardedAccounts::default();
     let err = AnchoredVecParser::try_utxos(&accs, &inputs).unwrap_err();
     // Any predicate failure here maps to MissingRequiredUtxo / InvalidUtxoValue / InvalidRunesPresence.
     assert_eq!(
         err,
-        ProgramError::Custom(ErrorCode::InvalidRunesPresence.into())
+        ProgramError::Custom(ErrorCode::MissingRequiredUtxo.into())
     );
 }

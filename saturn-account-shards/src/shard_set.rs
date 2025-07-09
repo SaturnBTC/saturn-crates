@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 
 use bytemuck::{Pod, Zeroable};
+use saturn_account_parser::codec::zero_copy::Discriminator;
 use saturn_account_parser::codec::zero_copy::AccountLoader;
 use saturn_collections::generic::fixed_list::{FixedList, FixedListError};
 
@@ -85,7 +86,7 @@ pub struct Selected;
 #[allow(dead_code)]
 pub struct ShardSet<'info, S, const MAX_SELECTED_SHARDS: usize, State = Unselected>
 where
-    S: Pod + Zeroable + 'static,
+    S: Pod + Zeroable + Discriminator + 'static,
 {
     /// All shard loaders supplied by the caller.
     loaders: &'info [&'info AccountLoader<'info, S>],
@@ -98,9 +99,10 @@ where
     _state: PhantomData<State>,
 }
 
+// ---------------------------- Unselected ------------------------------------
 impl<'info, S, const MAX_SELECTED_SHARDS: usize> ShardSet<'info, S, MAX_SELECTED_SHARDS, Unselected>
 where
-    S: Pod + Zeroable + 'static,
+    S: Pod + Zeroable + Discriminator + 'static,
 {
     /// Creates a new `ShardSet` wrapping the provided loaders.
     #[inline]
@@ -123,8 +125,15 @@ where
     pub fn is_empty(&self) -> bool {
         self.loaders.is_empty()
     }
+}
 
-    /// Select shards by index and transition into the [`Selected`] state.
+// ----------------- Unselected -> Selected -------------------------
+impl<'info, S, const MAX_SELECTED_SHARDS: usize> ShardSet<'info, S, MAX_SELECTED_SHARDS, Unselected>
+where
+    S: Pod + Zeroable + Discriminator + 'static,
+{
+    /// Select shards by index and transition into the [`Selected`] state. Only
+    /// available on *writable* shard sets.
     pub fn select_with<T>(
         mut self,
         spec: T,
@@ -147,9 +156,10 @@ where
     }
 }
 
+// ---------------------------- Selected -------------------------------
 impl<'info, S, const MAX_SELECTED_SHARDS: usize> ShardSet<'info, S, MAX_SELECTED_SHARDS, Selected>
 where
-    S: Pod + Zeroable + 'static,
+    S: Pod + Zeroable + Discriminator + 'static,
 {
     /// Returns the indexes that were selected via [`Self::select_with`].
     #[inline]
@@ -165,7 +175,25 @@ where
     }
 
     /// Executes `f` for every **selected** shard, borrowing each one exactly
-    /// for the duration of the closure call.
+    /// for the duration of the closure call. Only available on *writable*
+    /// shard sets.
+    pub fn for_each<R>(&self, mut f: impl FnMut(&S) -> R) -> Result<Vec<R>, ProgramError> {
+        let mut results = Vec::with_capacity(self.selected.len());
+        for &idx in self.selected.iter() {
+            let handle = ShardHandle::new(self.loaders[idx]);
+            let out = handle.with_ref(|shard| f(shard))?;
+            results.push(out);
+        }
+        Ok(results)
+    }
+}
+
+// ------------------------ Selected (mutable helper) --------------------------------
+impl<'info, S, const MAX_SELECTED_SHARDS: usize> ShardSet<'info, S, MAX_SELECTED_SHARDS, Selected>
+where
+    S: Pod + Zeroable + Discriminator + 'static,
+{
+    /// Executes `f` for every **selected** shard mutably.
     pub fn for_each_mut<R>(&self, mut f: impl FnMut(&mut S) -> R) -> Result<Vec<R>, ProgramError> {
         let mut results = Vec::with_capacity(self.selected.len());
         for &idx in self.selected.iter() {

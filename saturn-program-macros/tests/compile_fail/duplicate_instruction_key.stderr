@@ -1,5 +1,0 @@
-error: duplicate `instruction` key; specify it only once
-  --> tests/compile_fail/duplicate_instruction_key.rs:12:5
-   |
-12 |     instruction = "crate::instruction::Instr"
-   |     ^^^^^^^^^^^

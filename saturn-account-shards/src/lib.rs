@@ -175,6 +175,8 @@ mod shard;
 mod shard_handle;
 mod shard_indices;
 mod shard_set;
+mod split;
+mod update;
 
 pub use error::{Result, StateShardError};
 pub use prelude::{SelectedShards, Shards};

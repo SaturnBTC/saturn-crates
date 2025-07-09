@@ -1,13 +1,19 @@
+use borsh::{BorshSerialize, BorshDeserialize};
+use saturn_account_macros::Accounts;
+use saturn_account_parser::codec::Account;
+use saturn_program_macros::saturn_program;
+use saturn_program_macros::declare_id;
+use saturn_account_parser::Context;
+
+declare_id!("8YE2m8RGmFjyWkHfMV6aA1eeaoAj8ZqEXnoY6v1WKEwd");
+
 mod outer {
-    use borsh::{BorshSerialize, BorshDeserialize};
-    use saturn_account_macros::Accounts;
-    use saturn_account_parser::codec::BorshAccount;
-    use saturn_program_macros::saturn_program;
+    use super::*;
 
     #[derive(Accounts)]
     pub struct DummyAccounts<'info> {
         #[account(signer)]
-        caller: BorshAccount<'info, u64>,
+        caller: Account<'info, u64>,
     }
 
     mod instruction {
@@ -18,11 +24,11 @@ mod outer {
         }
     }
 
-    #[saturn_program(instruction = "crate::outer::instruction::Instr")]
+    #[saturn_program]
     mod handlers {
         use super::*;
         pub fn call<'info>(
-            ctx: &mut Context<'info, DummyAccounts<'info>>, // to be rewritten
+            ctx: Context<'info, DummyAccounts<'info>>, // to be rewritten
             _p: u8,
         ) -> Result<(), arch_program::program_error::ProgramError> {
             let _ = ctx.program_id;

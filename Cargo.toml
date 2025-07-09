@@ -17,6 +17,7 @@ members = [
     "saturn-utxo-parser",
     "saturn-utxo-parser-derive",
     "saturn-program-macros",
+    "saturn-account-discriminator-derive",
 ]
 resolver = "2"
 
@@ -35,6 +36,7 @@ saturn-utxo-parser-derive = { path = "./saturn-utxo-parser-derive" }
 saturn-account-parser = { path = "./saturn-account-parser" }
 saturn-account-macros = { path = "./saturn-account-macros" }
 saturn-program-macros = { path = "./saturn-program-macros" }
+saturn-account-discriminator-derive = { path = "./saturn-account-discriminator-derive" }
 
 # Saturn unified error handling
 saturn-error = { path = "./saturn-error" }

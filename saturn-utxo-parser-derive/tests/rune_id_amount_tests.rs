@@ -6,17 +6,21 @@ use arch_program::rune::{RuneAmount, RuneId};
 use arch_program::utxo::UtxoMeta;
 use saturn_account_parser::Accounts as AccountsTrait;
 use saturn_bitcoin_transactions::utxo_info::{UtxoInfo, UtxoInfoTrait};
+use saturn_utxo_parser::register_test_utxo_info;
 use saturn_utxo_parser::{ErrorCode, TryFromUtxos};
 use saturn_utxo_parser_derive::UtxoParser;
 
 // Helper to create a plain UTXO
-fn create_utxo(value: u64, txid_byte: u8, vout: u32) -> UtxoInfo {
+fn create_utxo(value: u64, txid_byte: u8, vout: u32) -> UtxoMeta {
     let txid = [txid_byte; 32];
-    UtxoInfo {
-        meta: UtxoMeta::from(txid, vout),
+    let meta = UtxoMeta::from(txid, vout);
+    let info = UtxoInfo::<saturn_bitcoin_transactions::utxo_info::SingleRuneSet> {
+        meta: meta.clone(),
         value,
         ..Default::default()
-    }
+    };
+    register_test_utxo_info(info);
+    meta
 }
 
 // Helper to create utxo with given rune id and amount
@@ -26,14 +30,21 @@ fn create_utxo_with_rune(
     vout: u32,
     rune_id: RuneId,
     amount: u128,
-) -> UtxoInfo {
-    let mut utxo = create_utxo(value, txid_byte, vout);
+) -> UtxoMeta {
+    let txid = [txid_byte; 32];
+    let meta = UtxoMeta::from(txid, vout);
+    let mut info = UtxoInfo::<saturn_bitcoin_transactions::utxo_info::SingleRuneSet> {
+        meta: meta.clone(),
+        value,
+        ..Default::default()
+    };
     let rune = RuneAmount {
         id: rune_id,
         amount,
     };
-    utxo.runes_mut().insert(rune).unwrap();
-    utxo
+    info.runes_mut().insert(rune).unwrap();
+    register_test_utxo_info(info);
+    meta
 }
 
 // Helper function to avoid const privacy limitations
@@ -43,9 +54,9 @@ fn target_rune_id() -> RuneId {
 
 #[derive(Debug, UtxoParser)]
 #[utxo_accounts(DummyAccounts)]
-struct ExactRune<'a> {
+struct ExactRune {
     #[utxo(rune_id = RuneId::new(777, 0), rune_amount = 500)]
-    exact: &'a UtxoInfo,
+    exact: UtxoInfo,
 }
 
 // Success path

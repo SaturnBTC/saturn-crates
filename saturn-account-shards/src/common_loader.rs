@@ -11,6 +11,7 @@
 use super::*;
 use arch_program::{account::AccountInfo, pubkey::Pubkey, utxo::UtxoMeta};
 use bytemuck::{Pod, Zeroable};
+use saturn_account_discriminator_derive::Discriminator;
 use saturn_account_parser::codec::zero_copy::AccountLoader;
 use saturn_bitcoin_transactions::utxo_info::{SingleRuneSet, UtxoInfo};
 
@@ -21,7 +22,7 @@ pub const MAX_BTC_UTXOS: usize = 64;
 
 /// Zero-copy mock shard used exclusively in unit tests.
 #[repr(C)]
-#[derive(Clone, Copy, Zeroable)]
+#[derive(Clone, Copy, Zeroable, Discriminator)]
 pub struct MockShardZc {
     /// Fixed-capacity array of BTC UTXOs.
     btc_utxos: [UtxoInfo<SingleRuneSet>; MAX_BTC_UTXOS],
@@ -232,7 +233,7 @@ pub fn create_rune_utxo(amount: u128, vout: u32) -> UtxoInfo<SingleRuneSet> {
     let mut runes = SingleRuneSet::default();
     // Safe: capacity is 1, so insertion cannot overflow.
     let _ = runes.insert(RuneAmount {
-        id: RuneId::BTC,
+        id: RuneId::new(1, 1),
         amount,
     });
 

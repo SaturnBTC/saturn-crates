@@ -128,7 +128,9 @@ pub fn get_account<'a>(
 
     if let Some(key) = key {
         if acc.key != &key {
-            return Err(ProgramError::InvalidAccountOwner);
+            return Err(ProgramError::Custom(
+                crate::error::ErrorCode::InvalidAccountKey.into(),
+            ));
         }
     }
 
@@ -147,6 +149,11 @@ pub fn get_pda_account<'a>(
 ) -> Result<&'a AccountInfo<'a>, ProgramError> {
     // First, retrieve the desired account while validating signer / writable flags
     let acc = get_account(accounts, index, is_signer, is_writable, None)?;
+
+    // Enforce the same seed-count limit as the runtime for consistency.
+    if seeds.len() > arch_program::pubkey::MAX_SEEDS {
+        return Err(ProgramError::InvalidSeeds);
+    }
 
     // Derive the expected PDA address from the provided seeds
     let (expected_key, _bump) = Pubkey::find_program_address(seeds, program_id);

@@ -36,6 +36,7 @@ pub fn parse_fields(
             base_ty: syn::parse_quote! { () },
             space: None,
             of_type: None,
+            owner: None,
         };
 
         // Detect if the field is a reference slice `&[AccountInfo<'_>]`.
@@ -91,6 +92,12 @@ pub fn parse_fields(
                     } else if meta.path.is_ident("payer") {
                         let expr: Expr = meta.value()?.parse()?;
                         cfg.payer = Some(expr);
+                    } else if meta.path.is_ident("owner") {
+                        let expr: Expr = meta.value()?.parse()?;
+                        if cfg.owner.is_some() {
+                            return Err(meta.error("duplicate `owner` attribute"));
+                        }
+                        cfg.owner = Some(expr);
                     } else if meta.path.is_ident("shards") {
                         cfg.is_shards = true;
                     } else if meta.path.is_ident("of") {
@@ -156,14 +163,7 @@ pub fn parse_fields(
         // a marker field such as `PhantomData`. Otherwise we treat it as an account field and
         // apply the usual validation so that unsupported bare types (e.g., `u64`) are caught.
         if !has_account_attr {
-            let is_phantom = match &cfg.base_ty {
-                syn::Type::Path(type_path) => type_path
-                    .path
-                    .segments
-                    .last()
-                    .map_or(false, |seg| seg.ident == "PhantomData"),
-                _ => false,
-            };
+            let is_phantom = is_phantom_marker(&cfg.base_ty);
 
             if is_phantom {
                 // Treat marker fields as Phantom kind so codegen can initialise them explicitly.
@@ -172,6 +172,21 @@ pub fn parse_fields(
                 parsed_fields.push(cfg);
                 continue;
             }
+        }
+
+        // Provide default `program_id = crate::ID` whenever it is required
+        // (e.g. PDA seeds, init / realloc creation, or bump placeholder) but
+        // the user did not specify it explicitly.  This mirrors Anchor’s
+        // behaviour and improves ergonomics: users can simply rely on
+        // `crate::ID` without boiler-plate.
+        let program_id_is_required = cfg.seeds.is_some()
+            || cfg.is_init
+            || cfg.is_init_if_needed
+            || cfg.is_realloc
+            || matches!(cfg.kind, FieldKind::Bump);
+
+        if program_id_is_required && cfg.program_id.is_none() {
+            cfg.program_id = Some(syn::parse_quote! { crate::ID });
         }
 
         // Reject mutually exclusive attribute combinations early.
@@ -202,6 +217,16 @@ pub fn parse_fields(
 
         // Additional validation for `init` accounts at parse-time (syntax-level).
         if cfg.is_init || cfg.is_init_if_needed {
+            // Specifying a constant `address` together with account creation flags is nonsensical
+            // because the address is derived (PDA) or implicitly chosen at runtime.  Reject this
+            // early to avoid silently ignoring a user mistake.
+            if cfg.address.is_some() {
+                return Err(syn::Error::new(
+                    field.span(),
+                    "`address` cannot be combined with `init` or `init_if_needed`; the account address is determined by the creation logic",
+                ));
+            }
+
             if cfg.payer.is_none() {
                 return Err(syn::Error::new(
                     field.span(),
@@ -218,12 +243,6 @@ pub fn parse_fields(
 
         // Additional validation for `realloc` accounts.
         if cfg.is_realloc {
-            if cfg.payer.is_none() {
-                return Err(syn::Error::new(
-                    field.span(),
-                    "`realloc` field requires `payer = <account>` in #[account] attribute",
-                ));
-            }
             if cfg.space.is_none() {
                 return Err(syn::Error::new(
                     field.span(),
@@ -232,11 +251,14 @@ pub fn parse_fields(
             }
         }
 
-        // `signer` is meaningless on shard vectors.
-        if cfg.is_shards && cfg.is_signer.unwrap_or(false) {
+        // A shard vector **derived from a PDA** (has `seeds`) is signed for via program
+        // derived address, therefore the individual shard accounts themselves cannot be
+        // transaction signers.  For *non-PDA* shard vectors we *do* allow `signer` so the
+        // account owner can authorise CPI such as `allocate`.
+        if cfg.is_shards && cfg.seeds.is_some() && cfg.is_signer.unwrap_or(false) {
             return Err(syn::Error::new(
                 field.span(),
-                "`signer` attribute cannot be used together with `shards`; shard accounts are PDAs and cannot be signers",
+                "`signer` attribute cannot be used on shard vectors that are PDAs (`seeds = ...`)",
             ));
         }
 
@@ -350,9 +372,9 @@ pub fn parse_fields(
                 ));
             };
 
-            // If the element itself is a known wrapper (e.g., AccountLoader/ZeroCopyAccount/ShardHandle),
+            // If the element itself is a known wrapper (e.g., AccountLoader/ShardHandle),
             // extract its inner generic type so the logical element type can be compared against `of = ...`.
-            let wrapper_idents = ["ZeroCopyAccount", "AccountLoader", "ShardHandle"];
+            let wrapper_idents = ["AccountLoader", "ShardHandle"];
             let unwrapped_element_ty = if let syn::Type::Path(type_path) = &element_ty {
                 if let Some(last) = type_path.path.segments.last() {
                     if wrapper_idents.contains(&last.ident.to_string().as_str()) {
@@ -428,12 +450,7 @@ pub fn parse_fields(
 
         // Validate single-account fields: allow `AccountInfo`, the two wrapper types, or their aliases.
         if matches!(cfg.kind, FieldKind::Single) {
-            let allowed_idents = [
-                "BorshAccount",
-                "ZeroCopyAccount",
-                "AccountLoader",
-                "AccountInfo",
-            ];
+            let allowed_idents = ["Account", "AccountLoader", "AccountInfo"];
             let is_allowed = match &cfg.base_ty {
                 syn::Type::Path(type_path) => type_path.path.segments.last().map_or(false, |seg| {
                     allowed_idents.contains(&seg.ident.to_string().as_str())
@@ -444,11 +461,11 @@ pub fn parse_fields(
             if !is_allowed {
                 return Err(syn::Error::new(
                     field.span(),
-                    "unsupported base type for account field; expected AccountInfo, BorshAccount, or ZeroCopyAccount",
+                    "unsupported base type for account field; expected AccountInfo, Account, or AccountLoader",
                 ));
             }
 
-            let wrapper_idents = ["BorshAccount", "ZeroCopyAccount", "AccountLoader"];
+            let wrapper_idents = ["Account", "AccountLoader"];
             // Extract inner type for wrapper variants.
             if let syn::Type::Path(type_path) = &cfg.base_ty {
                 if let Some(last) = type_path.path.segments.last() {
@@ -534,4 +551,30 @@ pub fn parse_fields(
     }
 
     Ok(parsed_fields)
+}
+
+/// Returns true if `ty` is exactly `core::marker::PhantomData<_>` or `std::marker::PhantomData<_>`.
+/// This mirrors Anchor's behaviour where only those two canonical paths are treated as zero-sized
+/// marker fields and therefore ignored by the macro. Any other type that merely ends with
+/// `PhantomData` will be treated as a regular field and validated accordingly.
+fn is_phantom_marker(ty: &syn::Type) -> bool {
+    use syn::Type;
+
+    let segments_equal = |segments: &[String]| -> bool {
+        segments == ["core", "marker", "PhantomData"]
+            || segments == ["std", "marker", "PhantomData"]
+    };
+
+    match ty {
+        Type::Path(type_path) => {
+            let segs: Vec<String> = type_path
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect();
+            segments_equal(&segs)
+        }
+        _ => false,
+    }
 }

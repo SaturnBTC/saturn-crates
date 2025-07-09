@@ -196,8 +196,11 @@ pub fn saturn_error(attr: TokenStream, item: TokenStream) -> TokenStream {
         // variant's name in sentence case.
         let has_error_attr = v.attrs.iter().any(|a| a.path().is_ident("error"));
         if !has_error_attr {
-            let msg = v.ident.to_string();
-            v.attrs.push(syn::parse_quote!(#[error("#msg")]));
+            // Use the variant's identifier as the default error message so that
+            // `thiserror` displays a sensible message without requiring users
+            // to annotate every variant manually.
+            let msg = syn::LitStr::new(&v.ident.to_string(), proc_macro2::Span::call_site());
+            v.attrs.push(syn::parse_quote!(#[error(#msg)]));
         }
         new_variants.push(v);
     }

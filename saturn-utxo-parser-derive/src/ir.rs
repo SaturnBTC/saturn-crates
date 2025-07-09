@@ -8,16 +8,16 @@
 use proc_macro2::Span;
 use syn::{Ident, Type};
 
-/// What kind of reference collection a field represents.
+/// What kind of UTXO collection a field represents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldKind {
-    /// A single `&'a UtxoInfo` reference.
+    /// A single `UtxoInfo` value.
     Single,
-    /// A fixed-length array `[&'a UtxoInfo; N]`.
+    /// A fixed-length array `[UtxoInfo; N]`.
     Array(usize),
-    /// A catch-all `Vec<&'a UtxoInfo>`.
+    /// A catch-all `Vec<UtxoInfo>`.
     Vec,
-    /// An optional reference `Option<&'a UtxoInfo>`.
+    /// An optional `Option<UtxoInfo>` value.
     Optional,
 }
 
@@ -33,13 +33,13 @@ pub enum RunesPresence {
 #[derive(Debug, Clone)]
 pub struct UtxoAttr {
     /// Match only UTXOs whose `value` equals this amount (satoshis).
-    pub value: Option<u64>,
+    pub value: Option<syn::Expr>,
     /// Constraints on rune presence (none / some / any).
     pub runes: Option<RunesPresence>,
-    /// Expression string for a specific rune id check.
-    pub rune_id_expr: Option<String>,
-    /// Expression string for a specific rune amount check.
-    pub rune_amount_expr: Option<String>,
+    /// Expression AST for a specific rune id check.
+    pub rune_id_expr: Option<syn::Expr>,
+    /// Expression AST for a specific rune amount check.
+    pub rune_amount_expr: Option<syn::Expr>,
     /// Whether this Vec field should capture the remaining inputs.
     pub rest: bool,
     /// Identifier of the accounts struct field to anchor against, if any.
@@ -80,5 +80,3 @@ pub struct DeriveInputIr {
     pub accounts_ty: Type,
     pub fields: Vec<Field>,
 }
-
-// TODO: define `FieldKind`, `UtxoAttr`, `Field`, `DeriveInputIr` etc.
