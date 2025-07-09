@@ -81,45 +81,23 @@ pub use error::ErrorCode;
 /// based on your struct definition and `#[utxo(...)]` attributes.
 ///
 /// [`UtxoInfo`]: saturn_bitcoin_transactions::utxo_info::UtxoInfo
-pub trait TryFromUtxos<'a>: Sized {
-    /// Concrete `Accounts` type that accompanies this UTXO parser.  The derive
-    /// macro emits this associated type automatically so implementations stay
-    /// ergonomic while still allowing the compiler to know the exact struct
-    /// that supplies account references used inside the parser.
-    type Accs: saturn_account_parser::Accounts<'a>;
+pub trait TryFromUtxos<'utxos>: Sized {
+    /// The accounts view that accompanies this parser.
+    /// The internal lifetime of the `Accounts` implementation **does not need** to be the same
+    /// as the borrow lifetime of the reference we receive in `try_utxos`.  We therefore leave
+    /// it generic (`'any`) and only bind the *reference* itself to `'accs`.
+    type Accs<'any>: saturn_account_parser::Accounts<'any>;
 
-    /// Parse a slice of [`UtxoInfo`] into this strongly-typed structure,
-    /// **using the already-validated `Accounts` struct of the instruction**.
+    /// Parse and validate a slice of [`UtxoInfo`].
     ///
-    /// Implementations may inspect the accounts (e.g. to resolve an `anchor`
-    /// target) while parsing UTXOs.
-    ///
-    /// # Parameters
-    ///
-    /// * `accounts` - The already-validated accounts struct of the instruction
-    /// * `utxos` - Slice of UTXO information to parse and validate
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(Self)` if all UTXOs are successfully matched and validated,
-    /// or a [`ProgramError`] if parsing fails.
-    ///
-    /// # Errors
-    ///
-    /// This method returns specific error codes based on the failure type:
-    ///
-    /// - [`ErrorCode::MissingRequiredUtxo`] - A required UTXO couldn't be found
-    /// - [`ErrorCode::UnexpectedExtraUtxos`] - UTXOs remain after all fields are satisfied
-    /// - [`ErrorCode::InvalidUtxoValue`] - UTXO value doesn't match requirements
-    /// - [`ErrorCode::InvalidRunesPresence`] - Rune presence doesn't match requirements
-    /// - [`ErrorCode::InvalidRuneId`] - Specific rune ID not found
-    /// - [`ErrorCode::InvalidRuneAmount`] - Rune amount doesn't match requirements
-    ///
-    /// [`UtxoInfo`]: saturn_bitcoin_transactions::utxo_info::UtxoInfo
-    /// [`ProgramError`]: arch_program::program_error::ProgramError
-    fn try_utxos(
-        accounts: &'a Self::Accs,
-        utxos: &'a [saturn_bitcoin_transactions::utxo_info::UtxoInfo],
+    /// * `accounts` – already-validated account struct (borrowed for the
+    ///   duration of the call only).
+    /// * `utxos` – slice of UTXOs that will be referenced by the returned
+    ///   struct; its lifetime `'utxos` is fully independent from the account
+    ///   borrow lifetime.
+    fn try_utxos<'accs, 'info2>(
+        accounts: &'accs Self::Accs<'info2>,
+        utxos: &'utxos [saturn_bitcoin_transactions::utxo_info::UtxoInfo],
     ) -> Result<Self, ProgramError>;
 }
 

@@ -35,7 +35,7 @@ fn create_utxo_with_rune(value: u64, txid_byte: u8, vout: u32, amount: u128) -> 
 // Struct using `anchor` attribute
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct Anchored<'a> {
     #[utxo(anchor = my_account)]
     anchor: &'a UtxoInfo,

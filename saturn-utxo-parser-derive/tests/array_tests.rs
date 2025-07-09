@@ -20,7 +20,7 @@ fn create_utxo(value: u64, txid_byte: u8, vout: u32) -> UtxoInfo {
 // Array field happy-path behaviour
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct ArrayParser<'a> {
     /// Exactly three UTXOs each with value 7 sats.
     #[utxo(value = 7)]

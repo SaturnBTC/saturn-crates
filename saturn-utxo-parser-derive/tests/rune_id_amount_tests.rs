@@ -42,7 +42,7 @@ fn target_rune_id() -> RuneId {
 }
 
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct ExactRune<'a> {
     #[utxo(rune_id = RuneId::new(777, 0), rune_amount = 500)]
     exact: &'a UtxoInfo,

@@ -56,7 +56,7 @@ pub fn build_extractor(
                 quote! {
                     let _anchor_target = &accounts.#anchor_ident_tok;
                     let _anchor_ix = arch_program::system_instruction::anchor(
-                        _anchor_target.key,
+                        saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                         #ident.meta.txid_big_endian(),
                         #ident.meta.vout(),
                     );
@@ -104,7 +104,7 @@ pub fn build_extractor(
                     if let Some(__opt_utxo) = #ident {
                         let _anchor_target = &accounts.#anchor_ident_tok;
                         let _anchor_ix = arch_program::system_instruction::anchor(
-                            _anchor_target.key,
+                            saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                             __opt_utxo.meta.txid_big_endian(),
                             __opt_utxo.meta.vout(),
                         );
@@ -135,7 +135,7 @@ pub fn build_extractor(
                 quote! {
                     let _anchor_target = &accounts.#anchor_ident_tok[i];
                     let _anchor_ix = arch_program::system_instruction::anchor(
-                        _anchor_target.key,
+                        saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                         utxo_ref.meta.txid_big_endian(),
                         utxo_ref.meta.vout(),
                     );
@@ -180,7 +180,7 @@ pub fn build_extractor(
                         };
                         let _anchor_target = &accounts.#anchor_ident_tok[i];
                         let _anchor_ix = arch_program::system_instruction::anchor(
-                            _anchor_target.key,
+                            saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                             utxo_ref.meta.txid_big_endian(),
                             utxo_ref.meta.vout(),
                         );

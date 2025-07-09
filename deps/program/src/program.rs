@@ -9,7 +9,7 @@ use crate::program_error::ProgramError;
 use crate::rune::RuneAmount;
 #[cfg(target_os = "solana")]
 use crate::stable_layout::stable_ins::StableInstruction;
-use crate::{msg, transaction_to_sign, MAX_BTC_RUNE_OUTPUT_SIZE, MAX_BTC_TX_SIZE};
+use crate::{msg, MAX_BTC_RUNE_OUTPUT_SIZE, MAX_BTC_TX_SIZE};
 
 use crate::clock::Clock;
 use crate::transaction_to_sign::TransactionToSign;
@@ -241,13 +241,13 @@ pub const MAX_TRANSACTION_TO_SIGN: usize = 4 * 1024;
 ///
 /// # Returns
 /// * `ProgramResult` - Ok(()) if successful, or an error if the operation fails
-pub fn set_transaction_to_sign<'a, T>(
-    accounts: &'a mut [T],
-    tx: &'a Transaction,
-    inputs_to_sign: &'a [InputToSign],
+pub fn set_transaction_to_sign<'accounts, 'info, T>(
+    accounts: &'accounts mut [T],
+    tx: &'accounts Transaction,
+    inputs_to_sign: &'accounts [InputToSign],
 ) -> ProgramResult
 where
-    T: AsRef<AccountInfo<'static>>,
+    T: AsRef<AccountInfo<'info>>,
 {
     msg!("setting tx to sign");
     // Use the new method that avoids double allocation

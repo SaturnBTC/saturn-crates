@@ -35,21 +35,21 @@ fn create_utxo_with_rune(value: u64, txid_byte: u8, vout: u32, amount: u128) -> 
 // -----------------------------------------------------------------------------
 
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct RuneNone<'a> {
     #[utxo(runes = "none")]
     no_rune_utxo: &'a UtxoInfo,
 }
 
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct RuneSome<'a> {
     #[utxo(runes = "some")]
     some_rune_utxo: &'a UtxoInfo,
 }
 
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct RuneAny<'a> {
     #[utxo(runes = "any")]
     any_utxo: &'a UtxoInfo,

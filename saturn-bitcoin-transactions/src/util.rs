@@ -36,9 +36,9 @@ use saturn_collections::generic::fixed_list::{FixedList, FixedListError};
 ///     get_used_shards_in_transaction::<10>(&transaction, &accounts);
 /// # assert!(used_shards.is_empty());
 /// ```
-pub fn get_used_shards_in_transaction<const SIZE: usize>(
+pub fn get_used_shards_in_transaction<'a, const SIZE: usize>(
     transaction: &Transaction,
-    accounts: &[AccountInfo<'static>],
+    accounts: &'a [AccountInfo<'a>],
 ) -> Result<FixedList<usize, SIZE>, FixedListError> {
     let mut used_shards = FixedList::<usize, SIZE>::new();
 
@@ -53,10 +53,10 @@ pub fn get_used_shards_in_transaction<const SIZE: usize>(
     Ok(used_shards)
 }
 
-fn reorder_accounts_in_transaction<const SIZE: usize>(
+fn reorder_accounts_in_transaction<'a, const SIZE: usize>(
     transaction: &Transaction,
     account_indexes: &mut FixedList<usize, SIZE>,
-    accounts: &[AccountInfo<'static>],
+    accounts: &'a [AccountInfo<'a>],
 ) -> Result<(), FixedListError> {
     let mut reordered_account_indexes = FixedList::<usize, SIZE>::new();
 

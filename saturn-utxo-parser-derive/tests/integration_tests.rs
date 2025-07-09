@@ -25,7 +25,7 @@ fn create_utxo(
 // Basic happy-path behaviour
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct Basic<'a> {
     /// Mandatory fee UTXO with exact value expectation.
     #[utxo(value = 10_000)]
@@ -80,7 +80,7 @@ fn missing_required_utxo() {
 // Extra inputs without a `rest` collector should yield `UnexpectedExtraUtxos`.
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct NoRest<'a> {
     #[utxo(value = 1_000)]
     fee: &'a saturn_bitcoin_transactions::utxo_info::UtxoInfo,
@@ -102,7 +102,7 @@ fn unexpected_extra_utxos() {
 // Value predicate failure should yield `InvalidUtxoValue`.
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct ValueCheck<'a> {
     #[utxo(value = 42)]
     the_answer: &'a saturn_bitcoin_transactions::utxo_info::UtxoInfo,
@@ -124,7 +124,7 @@ fn value_check_failure() {
 // Anchor attribute should be accepted and parsing should succeed.
 // -----------------------------------------------------------------------------
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(DummyAccounts<'a>)]
+#[utxo_accounts(DummyAccounts)]
 struct AnchorAttr<'a> {
     /// UTXO that will be anchored to an account field (dummy for macro parsing).
     #[utxo(anchor = my_account)]
@@ -228,7 +228,7 @@ impl<'info> Default for ShardedAccounts<'info> {
 }
 
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(ShardedAccounts<'a>)]
+#[utxo_accounts(ShardedAccounts)]
 struct AnchoredVecParser<'a> {
     // Must match the length of `accounts.shards` (3) – checked at runtime
     #[utxo(anchor = shards, value = 1)]

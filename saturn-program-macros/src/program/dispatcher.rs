@@ -111,7 +111,7 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
                     #module_ident :: #fn_ident(&mut ctx, inner)?;
 
                     // Finalize BTC transaction builder
-                    ctx.btc_tx.0.finalize()?;
+                    ctx.btc_tx.finalize()?;
                 }
             }
         } else {

@@ -473,7 +473,7 @@ fn derive_utxo_parser_old(item: TokenStream) -> TokenStream {
                         quote! {
                             let _anchor_target = &accounts.#anchor_ident_tok;
                             let _anchor_ix = arch_program::system_instruction::anchor(
-                                _anchor_target.key,
+                                saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                                 #ident.meta.txid_big_endian(),
                                 #ident.meta.vout(),
                             );
@@ -534,7 +534,7 @@ fn derive_utxo_parser_old(item: TokenStream) -> TokenStream {
                     quote! {
                         let _anchor_target = &accounts.#anchor_ident_tok[i];
                         let _anchor_ix = arch_program::system_instruction::anchor(
-                            _anchor_target.key,
+                            saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                             utxo_ref.meta.txid_big_endian(),
                             utxo_ref.meta.vout(),
                         );
@@ -589,7 +589,7 @@ fn derive_utxo_parser_old(item: TokenStream) -> TokenStream {
                             // Perform the anchor check (1-to-1 with the i-th account).
                             let _anchor_target = &accounts.#anchor_ident_tok[i];
                             let _anchor_ix = arch_program::system_instruction::anchor(
-                                _anchor_target.key,
+                                saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                                 utxo_ref.meta.txid_big_endian(),
                                 utxo_ref.meta.vout(),
                             );
@@ -625,7 +625,7 @@ fn derive_utxo_parser_old(item: TokenStream) -> TokenStream {
                             if let Some(__opt_utxo) = #ident {
                                 let _anchor_target = &accounts.#anchor_ident_tok;
                                 let _anchor_ix = arch_program::system_instruction::anchor(
-                                    _anchor_target.key,
+                                    saturn_account_parser::ToAccountInfo::to_account_info(&_anchor_target).key,
                                     __opt_utxo.meta.txid_big_endian(),
                                     __opt_utxo.meta.vout(),
                                 );
@@ -663,10 +663,10 @@ fn derive_utxo_parser_old(item: TokenStream) -> TokenStream {
     // ------------------------------------------------------------------
     let expanded = quote! {
         impl<'a> saturn_utxo_parser::TryFromUtxos<'a> for #struct_ident #ty_generics {
-            type Accs = #accounts_ty;
+            type Accs<'any> = #accounts_ty<'any>;
 
-            fn try_utxos(
-                accounts: &'a Self::Accs,
+            fn try_utxos<'accs, 'info2>(
+                accounts: &'accs Self::Accs<'info2>,
                 utxos: &'a [saturn_bitcoin_transactions::utxo_info::UtxoInfo]
             ) -> core::result::Result<Self, arch_program::program_error::ProgramError> {
                 use arch_program::program_error::ProgramError;

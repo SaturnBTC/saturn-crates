@@ -20,4 +20,5 @@ saturn-account-macros = { workspace = true }
 saturn-account-parser = { workspace = true }
 saturn-bitcoin-transactions = { workspace = true }
 saturn-collections = { workspace = true }
-borsh = { workspace = true } 
+borsh = { workspace = true }
+saturn-utxo-parser = { workspace = true } 

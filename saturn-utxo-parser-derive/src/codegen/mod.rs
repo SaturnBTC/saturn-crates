@@ -61,14 +61,17 @@ pub fn expand(ir: &DeriveInputIr) -> proc_macro2::TokenStream {
     // ---------------------------------------------------------------
     quote! {
         impl<'a> saturn_utxo_parser::TryFromUtxos<'a> for #struct_ident #ty_generics {
-            type Accs = #accounts_ty;
+            type Accs<'any> = #accounts_ty<'any>;
 
-            fn try_utxos(
-                accounts: &'a Self::Accs,
+            fn try_utxos<'accs, 'info2>(
+                accounts: &'accs Self::Accs<'info2>,
                 utxos: &'a [saturn_bitcoin_transactions::utxo_info::UtxoInfo],
             ) -> core::result::Result<Self, arch_program::program_error::ProgramError> {
                 use arch_program::program_error::ProgramError;
                 use saturn_utxo_parser::ErrorCode;
+
+                // Shadow the accounts reference with the correct lifetime for convenience.
+                let accounts: &Self::Accs<'info2> = accounts;
 
                 #(#init_snippets)*
 

@@ -57,7 +57,7 @@ struct WithdrawAccounts<'info> {
 }
 
 #[derive(Debug, UtxoParser)]
-#[utxo_accounts(WithdrawAccounts<'a>)]
+#[utxo_accounts(WithdrawAccounts)]
 struct WithdrawUtxos<'a> {
     #[utxo(value = 10_000, runes = "none")]
     fee_utxo: &'a UtxoInfo,
@@ -71,7 +71,7 @@ struct WithdrawUtxos<'a> {
     btc_tx_cfg(max_inputs_to_sign = 4, max_modified_accounts = 4)
 )]
 mod handlers {
-    use arch_program::{bitcoin::{Amount, ScriptBuf, TxOut}, program::{get_bitcoin_tx_output_value, set_transaction_to_sign}, utxo::UtxoMeta};
+    use arch_program::{bitcoin::{Amount, ScriptBuf, TxOut}, program::{get_bitcoin_tx_output_value, set_transaction_to_sign}, program_error::ProgramError, utxo::UtxoMeta};
     use mempool_oracle_sdk::TxStatus;
     use saturn_account_parser::Context;
     use saturn_bitcoin_transactions::utxo_info::{FixedOptionF64, SingleRuneSet, UtxoInfo};
@@ -82,7 +82,7 @@ mod handlers {
     pub fn deposit<'info>(
         ctx: &mut Context<'info, DepositAccounts<'info>>,
         params: UtxoMeta,
-    ) -> Result<(), arch_program::program_error::ProgramError> {
+    ) -> Result<(), ProgramError> {
         // ctx.accounts.escrow_utxo = params;
 
         // ctx.btc_tx.0.add_state_transition(ctx.accounts.escrow_utxo.info()).unwrap();
@@ -92,7 +92,7 @@ mod handlers {
     }
 
     pub fn withdraw<'info>(
-        ctx: &'info mut Context<'info, WithdrawAccounts<'info>>,
+        ctx: &mut Context<'info, WithdrawAccounts<'info>>,
         params: String,
     ) -> Result<(), arch_program::program_error::ProgramError> {
         let funds_utxo_txid = ctx.accounts.escrow_utxo.txid_big_endian();
@@ -109,21 +109,18 @@ mod handlers {
 
         let utxos = vec![utxo_info];
 
-        let utxos = WithdrawAccounts::try_utxos(ctx.accounts, &utxos).unwrap();
+        let parsed_utxos = WithdrawUtxos::try_utxos(&ctx.accounts, &utxos).unwrap();
 
         ctx.btc_tx
-            .0
             .add_tx_input(&utxo_info, &TxStatus::Confirmed, ctx.program_id)
             .unwrap();
 
         let fee = 1_000;
 
-        ctx.btc_tx.0.transaction.output.push(TxOut {
+        ctx.btc_tx.transaction.output.push(TxOut {
             script_pubkey: ScriptBuf::new(),
             value: Amount::from_sat(utxo_info.value - fee),
         });
-
-        ctx.btc_tx.0.finalize().unwrap();
 
         Ok(())
     }

@@ -126,7 +126,7 @@ pub mod utxo_info_json;
 /// The default value (created with `Default::default()`) contains `None` and will
 /// panic if accessed via `as_ref()`. This is by design since such instances should
 /// never be exposed outside of internal testing.
-struct ModifiedAccount<'a>(Option<&'a AccountInfo<'static>>);
+struct ModifiedAccount<'a>(Option<&'a AccountInfo<'a>>);
 
 impl<'a> ModifiedAccount<'a> {
     #[inline]
@@ -134,13 +134,13 @@ impl<'a> ModifiedAccount<'a> {
     ///
     /// This is a zero-cost helper used by
     /// [`TransactionBuilder::create_state_account`] and friends.
-    pub fn new(account: &'a AccountInfo<'static>) -> Self {
+    pub fn new(account: &'a AccountInfo<'a>) -> Self {
         Self(Some(account))
     }
 }
 
-impl<'a> AsRef<AccountInfo<'static>> for ModifiedAccount<'a> {
-    fn as_ref(&self) -> &AccountInfo<'static> {
+impl<'a> AsRef<AccountInfo<'a>> for ModifiedAccount<'a> {
+    fn as_ref(&self) -> &AccountInfo<'a> {
         self.0.expect("ModifiedAccount is None")
     }
 }
@@ -319,7 +319,7 @@ pub struct NewPotentialInputsAndOutputs {
 /// # use arch_program::account::AccountInfo;
 /// # use arch_program::pubkey::Pubkey;
 /// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
-/// # let account: AccountInfo<'static> = unsafe { std::mem::zeroed() };
+/// # let account: AccountInfo<'a> = unsafe { std::mem::zeroed() };
 /// # let program_id = Pubkey::system_program();
 /// // Add a state transition for an existing account
 /// builder.add_state_transition(&account)?;
@@ -807,9 +807,9 @@ impl<
     pub fn create_state_account(
         &mut self,
         utxo: &UtxoInfo<RuneSet>,
-        system_program: &AccountInfo<'static>,
-        fee_payer: &AccountInfo<'static>,
-        account: &'a AccountInfo<'static>,
+        system_program: &AccountInfo<'a>,
+        fee_payer: &AccountInfo<'a>,
+        account: &'a AccountInfo<'a>,
         program_id: &Pubkey,
         seeds: &[&[u8]],
     ) -> Result<(), ProgramError> {
@@ -880,7 +880,7 @@ impl<
     /// # use saturn_bitcoin_transactions::TransactionBuilder;
     /// # use arch_program::account::AccountInfo;
     /// # let mut builder: TransactionBuilder<8, 4, saturn_bitcoin_transactions::utxo_info::SingleRuneSet> = TransactionBuilder::new();
-    /// # let account: AccountInfo<'static> = unsafe { std::mem::zeroed() };
+    /// # let account: AccountInfo<'a> = unsafe { std::mem::zeroed() };
     /// // Add a state transition for an existing liquidity pool account
     /// builder.add_state_transition(&account)?;
     ///
@@ -903,7 +903,7 @@ impl<
     /// - [`Self::insert_state_transition_input`] for position-specific insertions
     pub fn add_state_transition(
         &mut self,
-        account: &'a AccountInfo<'static>,
+        account: &'a AccountInfo<'a>,
     ) -> Result<(), BitcoinTxError> {
         self.inputs_to_sign
             .push(InputToSign {
@@ -934,7 +934,7 @@ impl<
     pub fn insert_state_transition_input(
         &mut self,
         tx_index: usize,
-        account: &'a AccountInfo<'static>,
+        account: &'a AccountInfo<'a>,
     ) -> Result<(), BitcoinTxError> {
         let utxo_outpoint = OutPoint {
             txid: Txid::from_str(&hex::encode(account.utxo.txid())).unwrap(),
