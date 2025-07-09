@@ -1,0 +1,27 @@
+[package]
+name = "liquidity"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+arch_program = { workspace = true }
+arch_sdk = { workspace = true }
+mempool-oracle-sdk = { workspace = true }
+
+saturn-account-shards = { workspace = true }
+saturn-account-shards-derive = { workspace = true }
+saturn-bitcoin-transactions = { workspace = true, features = ["runes"] }
+saturn-collections = { workspace = true }
+saturn-safe-math = { workspace = true }
+saturn-utxo-parser = { workspace = true }
+saturn-utxo-parser-derive = { workspace = true }
+saturn-account-parser = { workspace = true }
+saturn-account-macros = { workspace = true }
+saturn-program-macros = { workspace = true }
+
+# Saturn unified error handling
+saturn-error = { workspace = true }
+saturn-error-derive = { workspace = true }
+
+borsh = { workspace = true }
+bytemuck = { workspace = true }
