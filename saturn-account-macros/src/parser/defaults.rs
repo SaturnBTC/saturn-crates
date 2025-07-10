@@ -17,4 +17,4 @@ pub(super) fn fill_defaults(cfg: &mut FieldCfg) {
     if program_id_is_required && cfg.program_id.is_none() {
         cfg.program_id = Some(syn::parse_quote! { crate::ID });
     }
-} 
+}

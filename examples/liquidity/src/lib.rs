@@ -1,4 +1,5 @@
 use arch_program::{pubkey::Pubkey, rune::RuneId, utxo::UtxoMeta};
+use borsh::{BorshDeserialize, BorshSerialize};
 use saturn_account_macros::Accounts;
 use saturn_account_parser::{Account, AccountLoader};
 use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
@@ -41,6 +42,8 @@ pub struct InitializePoolAccounts<'info> {
         init,
         payer = caller,
         mut,
+        // zero_copy,
+        // of = LiquidityPoolShard
     )]
     pub shards: Vec<AccountLoader<'info, LiquidityPoolShard>>,
 }
@@ -58,6 +61,7 @@ pub struct InitializePoolUtxos {
     shards: Vec<UtxoInfo>,
 }
 
+#[derive(BorshSerialize, BorshDeserialize)]
 pub struct InitializePoolParams {
     pub token_0: RuneId,
     pub token_1: RuneId,
