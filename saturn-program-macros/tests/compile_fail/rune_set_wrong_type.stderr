@@ -1,0 +1,80 @@
+error[E0277]: the trait bound `(dyn Debug + 'static): saturn_collections::generic::fixed_set::FixedCapacitySet` is not satisfied
+  --> tests/compile_fail/rune_set_wrong_type.rs:16:1
+   |
+16 | / #[saturn_program(btc_tx_cfg(
+17 | |     max_inputs_to_sign = 1,
+18 | |     max_modified_accounts = 1,
+19 | |     rune_set = "core::fmt::Debug"
+20 | | ))]
+   | |___^ the trait `saturn_collections::generic::fixed_set::FixedCapacitySet` is not implemented for `(dyn Debug + 'static)`
+   |
+   = help: the trait `saturn_collections::generic::fixed_set::FixedCapacitySet` is implemented for `saturn_collections::generic::fixed_set::FixedSet<T, SIZE>`
+note: required by a bound in `TxBuilderWrapper`
+  --> $WORKSPACE/saturn-account-parser/src/tx_builder.rs
+   |
+   |   pub struct TxBuilderWrapper<
+   |              ---------------- required by a bound in this struct
+...
+   |       RuneSet: saturn_collections::generic::fixed_set::FixedCapacitySet<
+   |  ______________^
+   | |             Item = arch_program::rune::RuneAmount,
+   | |         > + Default;
+   | |_________^ required by this bound in `TxBuilderWrapper`
+   = note: this error originates in the attribute macro `saturn_program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0782]: trait objects must include the `dyn` keyword
+  --> tests/compile_fail/rune_set_wrong_type.rs:16:1
+   |
+16 | / #[saturn_program(btc_tx_cfg(
+17 | |     max_inputs_to_sign = 1,
+18 | |     max_modified_accounts = 1,
+19 | |     rune_set = "core::fmt::Debug"
+20 | | ))]
+   | |___^
+   |
+   = note: this error originates in the attribute macro `saturn_program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0599]: the function or associated item `default` exists for struct `TxBuilderWrapper<'info, 1, 1, dyn Debug>`, but its trait bounds were not satisfied
+  --> tests/compile_fail/rune_set_wrong_type.rs:16:1
+   |
+16 |   #[saturn_program(btc_tx_cfg(
+   |  _^
+17 | |     max_inputs_to_sign = 1,
+18 | |     max_modified_accounts = 1,
+19 | |     rune_set = "core::fmt::Debug"
+20 | | ))]
+   | |___^ function or associated item cannot be called on `TxBuilderWrapper<'info, 1, 1, dyn Debug>` due to unsatisfied trait bounds
+   |
+  ::: $RUST/core/src/fmt/mod.rs
+   |
+   |   pub trait Debug {
+   |   --------------- doesn't satisfy `<_ as FixedCapacitySet>::Item = RuneAmount`, `_: FixedCapacitySet`, `dyn Debug: Sized` or `dyn Debug: std::default::Default`
+   |
+  ::: $WORKSPACE/saturn-account-parser/src/tx_builder.rs
+   |
+   | / pub struct TxBuilderWrapper<
+   | |     'a,
+   | |     const MAX_MODIFIED_ACCOUNTS: usize,
+   | |     const MAX_INPUTS_TO_SIGN: usize,
+   | |     RuneSet,
+   | | >(
+   | |_- doesn't satisfy `_: Default`
+   |
+   = note: the following trait bounds were not satisfied:
+           `<dyn Debug as saturn_collections::generic::fixed_set::FixedCapacitySet>::Item = RuneAmount`
+           which is required by `TxBuilderWrapper<'info, 1, 1, dyn Debug>: std::default::Default`
+           `dyn Debug: Sized`
+           which is required by `TxBuilderWrapper<'info, 1, 1, dyn Debug>: std::default::Default`
+           `dyn Debug: saturn_collections::generic::fixed_set::FixedCapacitySet`
+           which is required by `TxBuilderWrapper<'info, 1, 1, dyn Debug>: std::default::Default`
+           `dyn Debug: std::default::Default`
+           which is required by `TxBuilderWrapper<'info, 1, 1, dyn Debug>: std::default::Default`
+   = note: this error originates in the attribute macro `saturn_program` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `ctx`
+  --> tests/compile_fail/rune_set_wrong_type.rs:25:9
+   |
+25 |         ctx: Context<'info, DummyAccounts<'info>>,
+   |         ^^^ help: if this is intentional, prefix it with an underscore: `_ctx`
+   |
+   = note: `#[warn(unused_variables)]` on by default

@@ -1,5 +1,8 @@
 use proc_macro2::TokenStream;
-use syn::{Error, FnArg, Item, ItemFn, ItemMod, PatType, Path, Type};
+use syn::{
+    Error, FnArg, GenericArgument, Item, ItemFn, ItemMod, PatType, Path, PathArguments, ReturnType,
+    Type,
+};
 
 use super::helpers::has_cfg_test;
 
@@ -13,13 +16,13 @@ pub struct FnInfo {
     /// root). Used by the transform pass to disambiguate functions that share
     /// a name but are located in different nested modules.
     pub mod_path: Vec<syn::Ident>,
-    /// Path of the *second* parameter type (the instruction payload) when it is a simple
-    /// `Type::Path`. This is used later by the dispatcher generation step to decide whether
-    /// the handler expects the **whole** instruction enum (unit variant) or the inner payload
-    /// carried by tuple/struct variants. We store it as an `Option` because the parameter can
-    /// legally be something else (e.g. a reference or more complex type) in which case the
-    /// dispatcher falls back to the previous behaviour.
-    pub second_param_ty: Option<syn::Path>,
+    /// Full list of *payload* parameter types (everything after the first Context parameter).
+    /// These are stored verbatim so the dispatcher can generate instruction variants that
+    /// mirror the handler signature one-for-one
+    pub param_tys: Vec<syn::Type>,
+    /// Identifier names of the payload parameters, preserved so the dispatcher can
+    /// generate struct variants with matching field names (Anchor-style).
+    pub param_idents: Vec<syn::Ident>,
 }
 
 /// Traverses the items of the inline module, collecting [`FnInfo`] values and
@@ -65,12 +68,17 @@ pub fn gather_fn_infos(item_mod: &ItemMod) -> (Vec<FnInfo>, Vec<TokenStream>) {
                         );
                     }
 
-                    // Must have exactly 2 parameters (ctx, params)
+                    // -----------------------------------------------------------------
+                    // Parameter count check – must have **at least** two parameters:
+                    // (Context<'_, Accounts>, payload ...).  Additional payload
+                    // parameters are allowed and will be forwarded by the generated
+                    // dispatcher.
+                    // -----------------------------------------------------------------
                     if sig.inputs.len() < 2 {
                         errors.push(
                             Error::new_spanned(
                                 sig,
-                                "handler must take (Context<'_, Accounts>, params)",
+                                "handler must take at least two parameters: (Context<'_, Accounts>, params)",
                             )
                             .to_compile_error(),
                         );
@@ -78,8 +86,7 @@ pub fn gather_fn_infos(item_mod: &ItemMod) -> (Vec<FnInfo>, Vec<TokenStream>) {
                     }
 
                     // First argument analysis (extract Accounts type)
-                    let mut inputs_iter = sig.inputs.iter();
-                    let first = inputs_iter.next().unwrap();
+                    let first = sig.inputs.first().unwrap();
 
                     // Helper closure: given a `syn::Type::Path` that we already know refers to
                     // `Context< ... >`, extract the `Accounts` generic argument path (ignoring
@@ -168,11 +175,8 @@ pub fn gather_fn_infos(item_mod: &ItemMod) -> (Vec<FnInfo>, Vec<TokenStream>) {
                             // ------------------------------
                             _ => {
                                 errors.push(
-                                    Error::new_spanned(
-                                        ty,
-                                        "first argument must be Context",
-                                    )
-                                    .to_compile_error(),
+                                    Error::new_spanned(ty, "first argument must be Context")
+                                        .to_compile_error(),
                                 );
                                 None
                             }
@@ -186,45 +190,127 @@ pub fn gather_fn_infos(item_mod: &ItemMod) -> (Vec<FnInfo>, Vec<TokenStream>) {
                     };
 
                     // ----------------------------------------------------
-                    // Second argument becomes variant parameter – ensure it's a path type
+                    // Collect payload parameter types (everything after Context)
                     // ----------------------------------------------------
-                    let second = inputs_iter.next().unwrap();
-                    if let FnArg::Typed(PatType { ty, .. }) = second {
-                        match &**ty {
-                            Type::Path(_tp) => { /* OK */ }
-                            _ => {
-                                errors.push(
-                                    Error::new_spanned(ty, "parameter type must be a path")
-                                        .to_compile_error(),
-                                );
-                                continue;
-                            }
-                        }
-                    } else {
-                        errors.push(
-                            Error::new_spanned(second, "unexpected receiver; expected typed arg")
-                                .to_compile_error(),
-                        );
-                        continue;
-                    };
-
-                    // Capture the *second* parameter type path (if it is a plain `Type::Path`).
-                    let second_param_ty_opt: Option<syn::Path> =
-                        if let FnArg::Typed(PatType { ty, .. }) = second {
+                    let mut param_tys: Vec<syn::Type> = Vec::new();
+                    let mut param_idents: Vec<syn::Ident> = Vec::new();
+                    for arg in sig.inputs.iter().skip(1) {
+                        if let FnArg::Typed(PatType { ty, pat, .. }) = arg {
                             match &**ty {
-                                Type::Path(tp) => Some(tp.path.clone()),
-                                _ => None,
+                                Type::Path(_tp) => {
+                                    param_tys.push((**ty).clone());
+                                }
+                                _ => {
+                                    errors.push(
+                                        Error::new_spanned(ty, "parameter type must be a path")
+                                            .to_compile_error(),
+                                    );
+                                }
+                            }
+
+                            // Extract parameter identifier for later use
+                            match &**pat {
+                                syn::Pat::Ident(pat_ident) => {
+                                    param_idents.push(pat_ident.ident.clone());
+                                }
+                                _ => {
+                                    errors.push(
+                                        Error::new_spanned(
+                                            pat,
+                                            "parameter pattern must be an identifier",
+                                        )
+                                        .to_compile_error(),
+                                    );
+                                }
                             }
                         } else {
-                            None
-                        };
+                            errors.push(
+                                Error::new_spanned(arg, "unexpected receiver; expected typed arg")
+                                    .to_compile_error(),
+                            );
+                        }
+                    }
+
+                    // ----------------------------------------------------
+                    // Return type check – must be ProgramResult or Result<(), ProgramError>
+                    // ----------------------------------------------------
+                    fn is_valid_return_ty(ret: &ReturnType) -> bool {
+                        match ret {
+                            ReturnType::Type(_, ty) => match &**ty {
+                                Type::Path(tp) => {
+                                    let last_seg = match tp.path.segments.last() {
+                                        Some(seg) => seg,
+                                        None => return false,
+                                    };
+
+                                    // Accept any *ProgramResult* alias (e.g. arch_program::entrypoint::ProgramResult)
+                                    if last_seg.ident == "ProgramResult" {
+                                        return true;
+                                    }
+
+                                    // Accept Result< (), ProgramError >
+                                    if last_seg.ident == "Result" {
+                                        if let PathArguments::AngleBracketed(gen_args) =
+                                            &last_seg.arguments
+                                        {
+                                            // Extract the first two generic type args
+                                            let mut type_args =
+                                                gen_args.args.iter().filter_map(|arg| {
+                                                    if let GenericArgument::Type(t) = arg {
+                                                        Some(t)
+                                                    } else {
+                                                        None
+                                                    }
+                                                });
+
+                                            if let (Some(first_ty), Some(second_ty)) =
+                                                (type_args.next(), type_args.next())
+                                            {
+                                                // First must be unit `()`
+                                                let first_is_unit = matches!(first_ty, Type::Tuple(tup) if tup.elems.is_empty());
+
+                                                // Second must end with `ProgramError`
+                                                let second_is_program_error = match second_ty {
+                                                    Type::Path(tp2) => tp2
+                                                        .path
+                                                        .segments
+                                                        .last()
+                                                        .map(|s| s.ident == "ProgramError")
+                                                        .unwrap_or(false),
+                                                    _ => false,
+                                                };
+
+                                                return first_is_unit && second_is_program_error;
+                                            }
+                                        }
+                                    }
+
+                                    false
+                                }
+                                _ => false,
+                            },
+                            // If no explicit return type (`->`), treat as invalid
+                            ReturnType::Default => false,
+                        }
+                    }
+
+                    if !is_valid_return_ty(&sig.output) {
+                        errors.push(
+                            Error::new_spanned(
+                                &sig.output,
+                                "handler must return ProgramResult or Result<(), ProgramError>",
+                            )
+                            .to_compile_error(),
+                        );
+                    }
 
                     if let Some(acc_ty) = acc_ty_path_opt {
                         fn_infos.push(FnInfo {
                             fn_ident: sig.ident.clone(),
                             acc_ty,
                             mod_path: mod_path.clone(),
-                            second_param_ty: second_param_ty_opt,
+                            param_tys,
+                            param_idents,
                         });
                     }
                 }

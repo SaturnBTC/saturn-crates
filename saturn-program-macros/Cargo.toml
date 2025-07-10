@@ -13,6 +13,7 @@ quote = { workspace = true }
 syn = { workspace = true, features = ["full"] }
 convert_case = "0.6"
 arch_program = { workspace = true }
+sha2 = "0.10"
 
 [dev-dependencies]
 trybuild = { workspace = true } 

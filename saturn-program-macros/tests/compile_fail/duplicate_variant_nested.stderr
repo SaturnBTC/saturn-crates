@@ -1,0 +1,13 @@
+error: duplicate instruction variant after case conversion; rename the handler or use distinct names
+  --> tests/compile_fail/duplicate_variant_nested.rs:29:16
+   |
+29 |         pub fn FooHandler<'info>(
+   |                ^^^^^^^^^^
+
+warning: unused import: `saturn_account_parser::Context`
+ --> tests/compile_fail/duplicate_variant_nested.rs:5:5
+  |
+5 | use saturn_account_parser::Context;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default 

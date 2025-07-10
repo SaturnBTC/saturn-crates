@@ -8,6 +8,7 @@ use syn::{punctuated::Punctuated, Error, Lit, Meta, Path};
 /// Tune them as the runtime implementation evolves.
 const MAX_INPUTS_TO_SIGN_LIMIT: usize = 64;
 const MAX_MODIFIED_ACCOUNTS_LIMIT: usize = 64;
+const MAX_RUNE_CAPACITY_LIMIT: usize = 3;
 
 /// Bitcoin-transaction specific configuration parsed from the attribute list.
 #[derive(Default, Clone)]
@@ -28,8 +29,6 @@ pub struct AttrConfig {
 }
 
 /// Parse the attribute list provided to `#[saturn_program(..)]`.
-///
-/// This function is **pure** (no side-effects) so it can be unit-tested easily.
 pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
     // ------------------------------------------------------------
     // 1. Parse attribute list into `Meta` items
@@ -82,6 +81,13 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
                                     let value = int_lit.base10_parse::<usize>()?;
+                                    // Reject zero – must be strictly positive
+                                    if value == 0 {
+                                        return Err(Error::new_spanned(
+                                            &nv.value,
+                                            "max_inputs_to_sign must be greater than 0",
+                                        ));
+                                    }
                                     if value > MAX_INPUTS_TO_SIGN_LIMIT {
                                         return Err(Error::new_spanned(
                                             &nv.value,
@@ -115,6 +121,13 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
                                     let value = int_lit.base10_parse::<usize>()?;
+                                    // Reject zero – must be strictly positive
+                                    if value == 0 {
+                                        return Err(Error::new_spanned(
+                                            &nv.value,
+                                            "max_modified_accounts must be greater than 0",
+                                        ));
+                                    }
                                     if value > MAX_MODIFIED_ACCOUNTS_LIMIT {
                                         return Err(Error::new_spanned(
                                             &nv.value,
@@ -171,8 +184,16 @@ pub fn parse(attr: TokenStream) -> Result<AttrConfig, Error> {
                             }
                             if let syn::Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Int(int_lit) = &expr_lit.lit {
-                                    btc_tx_cfg.rune_capacity =
-                                        Some(int_lit.base10_parse::<usize>()?);
+                                    let value = int_lit.base10_parse::<usize>()?;
+                                    if value > MAX_RUNE_CAPACITY_LIMIT {
+                                        return Err(Error::new_spanned(
+                                            &nv.value,
+                                            format!(
+                                                "rune_capacity exceeds allowed maximum ({MAX_RUNE_CAPACITY_LIMIT})",
+                                            ),
+                                        ));
+                                    }
+                                    btc_tx_cfg.rune_capacity = Some(value);
                                 } else {
                                     return Err(Error::new_spanned(
                                         &nv.value,
@@ -270,12 +291,12 @@ mod tests {
         let ts: proc_macro2::TokenStream = quote!(btc_tx_cfg(
             max_inputs_to_sign = 8,
             max_modified_accounts = 16,
-            rune_capacity = 32
+            rune_capacity = 3
         ));
         let cfg = parse(ts).expect("should parse");
         assert!(cfg.enable_bitcoin_tx);
         assert_eq!(cfg.btc_tx_cfg.max_inputs_to_sign, Some(8));
         assert_eq!(cfg.btc_tx_cfg.max_modified_accounts, Some(16));
-        assert_eq!(cfg.btc_tx_cfg.rune_capacity, Some(32));
+        assert_eq!(cfg.btc_tx_cfg.rune_capacity, Some(3));
     }
 }
