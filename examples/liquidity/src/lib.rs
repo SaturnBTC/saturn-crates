@@ -1,7 +1,45 @@
-use saturn_program_macros::saturn_program;
+use arch_program::pubkey::Pubkey;
+use saturn_account_macros::Accounts;
+use saturn_account_parser::{Account, AccountLoader};
+use saturn_program_macros::{declare_id, saturn_program};
 
 mod instruction;
 mod state;
+
+declare_id!("8YE2m8RGmFjyWkHfMV6aA1eeaoAj8ZqEXnoY6v1WKEwd");
+
+#[derive(Accounts)]
+pub struct InitializePoolAccounts<'info> {
+    #[account(signer, mut)]
+    pub caller: Account<'info, u64>,
+
+    #[account(
+        seeds = &[b"CONFIG"],
+        program_id = Pubkey::default(),
+        init,
+        payer = caller,
+        mut,
+    )]
+    pub config: AccountLoader<'info, LiquidityPoolConfig>,
+
+    #[account(
+        bump,
+        seeds = &[b"CONFIG"],
+        program_id = Pubkey::default(),
+    )]
+    pub config_bump: [u8; 1],
+
+    #[account(
+        shards,
+        len = 10,
+        seeds = &[b"SHARD"],
+        program_id = Pubkey::default(),
+        init,
+        payer = caller,
+        mut,
+    )]
+    pub shards: Vec<AccountLoader<'info, LiquidityPoolShard>>,
+}
 
 #[saturn_program(btc_tx_cfg(
     max_inputs_to_sign = 11,
@@ -15,8 +53,7 @@ mod handlers {
     use saturn_utxo_parser::TryFromUtxos;
 
     use crate::{
-        initialize_pool::{InitializePoolAccounts, InitializePoolUtxos},
-        instruction::initialize_pool::InitializePoolParams,
+        initialize_pool::InitializePoolUtxos, instruction::initialize_pool::InitializePoolParams,
     };
 
     pub fn initialize_pool<'info>(

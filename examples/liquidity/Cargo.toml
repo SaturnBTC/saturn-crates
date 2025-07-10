@@ -10,6 +10,7 @@ mempool-oracle-sdk = { workspace = true }
 
 saturn-account-shards = { workspace = true }
 saturn-account-shards-derive = { workspace = true }
+saturn-account-discriminator-derive = { workspace = true }
 saturn-bitcoin-transactions = { workspace = true, features = ["runes"] }
 saturn-collections = { workspace = true }
 saturn-safe-math = { workspace = true }
@@ -25,3 +26,6 @@ saturn-error-derive = { workspace = true }
 
 borsh = { workspace = true }
 bytemuck = { workspace = true }
+
+[features]
+no-entrypoint = []

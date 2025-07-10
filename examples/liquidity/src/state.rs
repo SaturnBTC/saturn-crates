@@ -1,7 +1,11 @@
 use arch_program::rune::RuneId;
 use bytemuck::{Pod, Zeroable};
+use saturn_account_discriminator_derive::Discriminator;
+use saturn_account_shards_derive::ShardAccount;
+use saturn_bitcoin_transactions::utxo_info::{FixedArrayUtxoInfo, FixedOptionUtxoInfo, UtxoInfo};
+use saturn_collections::generic::fixed_list::FixedList;
 
-#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable, Discriminator)]
 #[repr(C)]
 pub struct LiquidityPoolConfig {
     pub token_0: RuneId,
@@ -19,10 +23,13 @@ impl LiquidityPoolConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, Default, ShardAccount)]
 #[repr(C)]
 pub struct LiquidityPoolShard {
     liquidity: u128,
+
+    btc_utxos: FixedArrayUtxoInfo,
+    rune_utxo: FixedOptionUtxoInfo,
 }
 
 impl LiquidityPoolShard {
