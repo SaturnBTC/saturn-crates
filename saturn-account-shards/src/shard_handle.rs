@@ -1,7 +1,7 @@
 use arch_program::program_error::ProgramError;
 use bytemuck::{Pod, Zeroable};
-use saturn_account_parser::codec::zero_copy::Discriminator;
 use saturn_account_parser::codec::zero_copy::AccountLoader;
+use saturn_account_parser::codec::zero_copy::Discriminator;
 
 /// Lightweight handle around an [`AccountLoader`].
 ///

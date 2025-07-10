@@ -5,8 +5,8 @@
 
 use crate::shard_set::{Selected, ShardSet, Unselected};
 use bytemuck::{Pod, Zeroable};
-use saturn_account_parser::codec::zero_copy::Discriminator;
 use saturn_account_parser::codec::zero_copy::AccountLoader;
+use saturn_account_parser::codec::zero_copy::Discriminator;
 
 /// Convenience alias for an **unselected** `ShardSet` in which the typestate
 /// parameter is hidden.

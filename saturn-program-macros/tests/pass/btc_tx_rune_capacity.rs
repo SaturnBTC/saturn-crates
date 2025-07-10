@@ -1,8 +1,10 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use saturn_account_macros::Accounts;
 use saturn_account_parser::codec::Account;
+use saturn_account_parser::Context;
 use saturn_program_macros::declare_id;
 use saturn_program_macros::saturn_program;
+
 
 declare_id!("8YE2m8RGmFjyWkHfMV6aA1eeaoAj8ZqEXnoY6v1WKEwd");
 
@@ -20,7 +22,7 @@ mod instruction {
     }
 }
 
-#[saturn_program(btc_tx_cfg(max_inputs_to_sign = 3, max_modified_accounts = 6, rune_capacity = 8))]
+#[saturn_program(btc_tx_cfg(max_inputs_to_sign = 3, max_modified_accounts = 6, rune_capacity = 3))]
 mod handlers {
     use super::*;
 

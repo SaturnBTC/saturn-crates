@@ -8,7 +8,7 @@ mod instruction {
 }
 
 #[saturn_program(
-    btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1, rune_set = "crate::Foo", rune_capacity = 8)
+    btc_tx_cfg(max_inputs_to_sign = 1, max_modified_accounts = 1, rune_set = "crate::Foo", rune_capacity = 3)
 )]
 mod handlers {}
 

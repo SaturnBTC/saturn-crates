@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
 
 use bytemuck::{Pod, Zeroable};
-use saturn_account_parser::codec::zero_copy::Discriminator;
 use saturn_account_parser::codec::zero_copy::AccountLoader;
+use saturn_account_parser::codec::zero_copy::Discriminator;
 use saturn_collections::generic::fixed_list::{FixedList, FixedListError};
 
 use crate::shard_handle::ShardHandle;

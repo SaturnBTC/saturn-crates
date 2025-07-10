@@ -43,8 +43,7 @@ impl ZeroCopyCodec {
             return Err(ProgramError::InvalidAccountData);
         }
         // Verify discriminator matches.
-        if &data[..DISCRIMINATOR_LEN] != &<S as Discriminator>::DISCRIMINATOR
-        {
+        if &data[..DISCRIMINATOR_LEN] != &<S as Discriminator>::DISCRIMINATOR {
             return Err(ProgramError::InvalidAccountData);
         }
 
@@ -62,8 +61,7 @@ impl ZeroCopyCodec {
         if data.len() < DISCRIMINATOR_LEN + size_of::<S>() {
             return Err(ProgramError::InvalidAccountData);
         }
-        if &data[..DISCRIMINATOR_LEN] != &<S as Discriminator>::DISCRIMINATOR
-        {
+        if &data[..DISCRIMINATOR_LEN] != &<S as Discriminator>::DISCRIMINATOR {
             return Err(ProgramError::InvalidAccountData);
         }
         // SAFETY: same as in `load_copy`.
@@ -90,8 +88,7 @@ impl ZeroCopyCodec {
             return Err(ProgramError::InvalidAccountData);
         }
 
-        if &data[..DISCRIMINATOR_LEN] != &<S as Discriminator>::DISCRIMINATOR
-        {
+        if &data[..DISCRIMINATOR_LEN] != &<S as Discriminator>::DISCRIMINATOR {
             return Err(ProgramError::InvalidAccountData);
         }
 
@@ -120,8 +117,7 @@ impl ZeroCopyCodec {
             return Err(ProgramError::InvalidAccountData);
         }
 
-        if &data[..DISCRIMINATOR_LEN] != &<S as Discriminator>::DISCRIMINATOR
-        {
+        if &data[..DISCRIMINATOR_LEN] != &<S as Discriminator>::DISCRIMINATOR {
             return Err(ProgramError::InvalidAccountData);
         }
 
@@ -211,8 +207,7 @@ where
             }
 
             // write discriminator
-            data[..DISCRIMINATOR_LEN]
-                .copy_from_slice(&<T as Discriminator>::DISCRIMINATOR);
+            data[..DISCRIMINATOR_LEN].copy_from_slice(&<T as Discriminator>::DISCRIMINATOR);
 
             // zero-fill struct bytes
             for byte in &mut data[DISCRIMINATOR_LEN..total_size] {

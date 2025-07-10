@@ -25,14 +25,11 @@ pub fn derive_discriminator(input: TokenStream) -> TokenStream {
     };
 
     // Produce byte literals for code generation.
-    let byte_tokens = hash_bytes
-        .iter()
-        .map(|b| quote! { #b })
-        .collect::<Vec<_>>();
+    let byte_tokens = hash_bytes.iter().map(|b| quote! { #b }).collect::<Vec<_>>();
 
     TokenStream::from(quote! {
         impl saturn_account_parser::codec::zero_copy::Discriminator for #ident {
             const DISCRIMINATOR: [u8; 8] = [ #( #byte_tokens ),* ];
         }
     })
-} 
+}
