@@ -89,7 +89,7 @@ where
     S: Pod + Zeroable + Discriminator + 'static,
 {
     /// All shard loaders supplied by the caller.
-    loaders: &'info [&'info AccountLoader<'info, S>],
+    loaders: &'info [AccountLoader<'info, S>],
 
     /// Indexes of the shards that are currently *selected* (may be empty while
     /// the set is in the [`Unselected`] state).
@@ -106,7 +106,7 @@ where
 {
     /// Creates a new `ShardSet` wrapping the provided loaders.
     #[inline]
-    pub fn from_loaders(loaders: &'info [&'info AccountLoader<'info, S>]) -> Self {
+    pub fn from_loaders(loaders: &'info [AccountLoader<'info, S>]) -> Self {
         Self {
             loaders,
             selected: FixedList::new(),
@@ -171,7 +171,7 @@ where
     #[inline]
     pub fn handle_by_index(&self, idx: usize) -> ShardHandle<'info, S> {
         debug_assert!(idx < self.loaders.len());
-        ShardHandle::new(self.loaders[idx])
+        ShardHandle::new(&self.loaders[idx])
     }
 
     /// Executes `f` for every **selected** shard, borrowing each one exactly
@@ -180,7 +180,7 @@ where
     pub fn for_each<R>(&self, mut f: impl FnMut(&S) -> R) -> Result<Vec<R>, ProgramError> {
         let mut results = Vec::with_capacity(self.selected.len());
         for &idx in self.selected.iter() {
-            let handle = ShardHandle::new(self.loaders[idx]);
+            let handle = ShardHandle::new(&self.loaders[idx]);
             let out = handle.with_ref(|shard| f(shard))?;
             results.push(out);
         }
@@ -197,7 +197,7 @@ where
     pub fn for_each_mut<R>(&self, mut f: impl FnMut(&mut S) -> R) -> Result<Vec<R>, ProgramError> {
         let mut results = Vec::with_capacity(self.selected.len());
         for &idx in self.selected.iter() {
-            let handle = ShardHandle::new(self.loaders[idx]);
+            let handle = ShardHandle::new(&self.loaders[idx]);
             let out = handle.with_mut(|shard| f(shard))?;
             results.push(out);
         }

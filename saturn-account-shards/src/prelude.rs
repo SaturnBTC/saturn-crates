@@ -20,13 +20,13 @@ pub type SelectedShards<'info, S, const MAX_SELECTED_SHARDS: usize> =
 
 /// Allows constructing a `ShardSet` via `slice.into()` instead of calling
 /// `ShardSet::new(slice)` explicitly.
-impl<'info, S, const MAX_SELECTED_SHARDS: usize> From<&'info [&'info AccountLoader<'info, S>]>
+impl<'info, S, const MAX_SELECTED_SHARDS: usize> From<&'info [AccountLoader<'info, S>]>
     for ShardSet<'info, S, MAX_SELECTED_SHARDS, Unselected>
 where
     S: Pod + Zeroable + Discriminator + 'static,
 {
     #[inline]
-    fn from(slice: &'info [&'info AccountLoader<'info, S>]) -> Self {
+    fn from(slice: &'info [AccountLoader<'info, S>]) -> Self {
         ShardSet::from_loaders(slice)
     }
 }

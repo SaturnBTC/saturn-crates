@@ -38,7 +38,7 @@ impl LiquidityPoolShard {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable, Discriminator)]
 #[repr(C)]
 pub struct LiquidityPosition {
     liquidity: u128,

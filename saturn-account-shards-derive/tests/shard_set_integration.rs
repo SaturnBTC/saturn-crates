@@ -46,7 +46,7 @@ use saturn_account_shards::ShardSet;
 #[test]
 fn shard_set_compile_check() {
     // Create an empty slice of AccountLoaders for compile-time checking.
-    let loaders: &[&AccountLoader<'_, DefaultShard>] = &[];
+    let loaders: &[AccountLoader<'_, DefaultShard>] = &[];
     let shard_set = ShardSet::<DefaultShard, 2>::from_loaders(loaders);
 
     // Sanity checks on the basic API.

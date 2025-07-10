@@ -196,6 +196,13 @@ pub fn leak_loaders_from_vec(
     Box::leak(boxed_vec.into_boxed_slice())
 }
 
+pub fn create_loaders(shards: Vec<MockShardZc>) -> Vec<AccountLoader<'static, MockShardZc>> {
+    shards
+        .into_iter()
+        .map(|shard| create_loader_from(&shard))
+        .collect()
+}
+
 /// Adds multiple BTC-UTXOs to the provided `shard`.
 /// Each new UTXO will use a sequential `vout` value starting after the current last index.
 /// The helper silently stops once the shard reaches its maximum capacity.
