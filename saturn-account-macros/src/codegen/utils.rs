@@ -14,6 +14,41 @@ pub(crate) fn is_account_info_path(ty: &Type) -> bool {
     }
 }
 
+/// If `ty` is a `saturn_account_parser::codec::Account<'info, T>` or
+/// `saturn_account_parser::codec::AccountLoader<'info, T>` path, this helper
+/// returns the **inner** generic type `T`. When `ty` does not match either
+/// wrapper, `None` is returned so callers can fall back to the original type.
+pub(crate) fn extract_inner_data_type(ty: &Type) -> Option<Type> {
+    use syn::{GenericArgument, PathArguments, TypePath};
+
+    // We only care about simple type paths – references are stripped earlier.
+    let Type::Path(TypePath { path, .. }) = ty else {
+        return None;
+    };
+
+    let Some(last_segment) = path.segments.last() else { return None };
+
+    // Only consider the exact wrapper identifiers we know about.
+    if last_segment.ident != "Account" && last_segment.ident != "AccountLoader" {
+        return None;
+    }
+
+    // Inspect the angle-bracketed generic parameters `<...>`.
+    let PathArguments::AngleBracketed(ref angle_args) = last_segment.arguments else {
+        return None;
+    };
+
+    // The last generic argument should be the inner data type `T`.  We iterate
+    // *in reverse* so we can gracefully skip over the lifetime parameter.
+    for arg in angle_args.args.iter().rev() {
+        if let GenericArgument::Type(ty) = arg {
+            return Some(ty.clone());
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

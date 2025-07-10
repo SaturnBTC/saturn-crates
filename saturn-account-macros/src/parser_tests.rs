@@ -127,16 +127,17 @@ mod parser_tests {
         assert!(err.to_string().contains("duplicate"));
     }
 
-    /// 1.9 – unsupported base type (e.g., u64) should be rejected.
+    /// 1.9 – parser now allows unsupported base types (e.g., u64) so that further validation can decide.
     #[test]
-    fn parser_rejects_unsupported_base_type() {
+    fn parser_allows_unsupported_base_type() {
         let di: DeriveInput = parse_quote! {
             struct Bad<'info> {
                 value: u64,
             }
         };
-        let err = parser::parse_fields(extract_named_fields(&di)).unwrap_err();
-        assert!(err.to_string().contains("unsupported"));
+        let cfgs = parser::parse_fields(extract_named_fields(&di)).expect("parser should succeed");
+        assert_eq!(cfgs.len(), 1);
+        assert!(matches!(cfgs[0].kind, model::FieldKind::Single));
     }
 
     /// 1.15 – tuple struct should be rejected as parser expects named fields.
@@ -267,16 +268,100 @@ mod parser_tests {
         assert!(cfgs[0].of_type.is_some());
     }
 
-    /// parser rejects when `of` mismatches element type
+    /// parser currently allows mismatched `of` param; semantic validator will catch this later.
     #[test]
-    fn parser_rejects_of_param_mismatch() {
+    fn parser_allows_of_param_mismatch() {
         let di: DeriveInput = parse_quote! {
             struct Test<'info> {
                 #[account(shards, of = WrongShard, len = 1)]
                 shards: Vec<saturn_account_shards::ShardHandle<'info, RightShard>>,
             }
         };
+        let cfgs = parser::parse_fields(extract_named_fields(&di)).expect("parse should succeed");
+        assert!(matches!(cfgs[0].kind, model::FieldKind::Shards(..)));
+        // ensure captured of_type is WrongShard
+        let of_ty = &cfgs[0].of_type;
+        assert!(of_ty.is_some());
+    }
+
+    /// 1.xx – seeds but no `program_id` should default to `crate::ID` and parse successfully.
+    #[test]
+    fn parser_defaults_program_id_for_seeds() {
+        let di: DeriveInput = parse_quote! {
+            struct Accs<'info> {
+                #[account(seeds = &[b"seed"])]
+                pda: Account<'info, u64>,
+            }
+        };
+        let cfgs = parser::parse_fields(extract_named_fields(&di)).expect("parse should succeed");
+        assert!(
+            cfgs[0].program_id.is_some(),
+            "program_id should be defaulted to crate::ID"
+        );
+    }
+
+    /// 1.xx – `program_id` without `seeds`, `init`, or `realloc` should be rejected.
+    #[test]
+    fn parser_rejects_program_id_without_seeds() {
+        let di: DeriveInput = parse_quote! {
+            struct Accs<'info> {
+                #[account(program_id = arch_program::pubkey::Pubkey::default())]
+                acc: Account<'info, u64>,
+            }
+        };
         let err = parser::parse_fields(extract_named_fields(&di)).unwrap_err();
-        assert!(err.to_string().contains("does not match element type"));
+        assert!(err.to_string().contains("requires `seeds"));
+    }
+
+    /// 1.xx – combining `address` and `seeds` should be rejected.
+    #[test]
+    fn parser_rejects_address_and_seeds_combination() {
+        let di: DeriveInput = parse_quote! {
+            struct Accs<'info> {
+                #[account(address = arch_program::pubkey::Pubkey::default(), seeds = &[b"seed"])]
+                pda: Account<'info, u64>,
+            }
+        };
+        let err = parser::parse_fields(extract_named_fields(&di)).unwrap_err();
+        assert!(err.to_string().contains("cannot be combined"));
+    }
+
+    /// 1.xx – `init` field without `payer` should be rejected.
+    #[test]
+    fn parser_rejects_init_missing_payer() {
+        let di: DeriveInput = parse_quote! {
+            struct Accs<'info> {
+                #[account(init)]
+                new_acc: Account<'info, u64>,
+            }
+        };
+        let err = parser::parse_fields(extract_named_fields(&di)).unwrap_err();
+        assert!(err.to_string().contains("payer"));
+    }
+
+    /// 1.xx – using `shards` flag on non-Vec field should error.
+    #[test]
+    fn parser_rejects_shards_flag_on_non_vec() {
+        let di: DeriveInput = parse_quote! {
+            struct Accs<'info> {
+                #[account(shards)]
+                acc: Account<'info, u64>,
+            }
+        };
+        let err = parser::parse_fields(extract_named_fields(&di)).unwrap_err();
+        assert!(err.to_string().contains("shards"));
+    }
+
+    /// 1.xx – vector field with `len` but without `shards` is parsed as FixedSlice.
+    #[test]
+    fn parser_accepts_fixed_slice_vec() {
+        let di: DeriveInput = parse_quote! {
+            struct Accs<'info> {
+                #[account(len = 3)]
+                pdas: Vec<AccountInfo<'static>>,
+            }
+        };
+        let cfgs = parser::parse_fields(extract_named_fields(&di)).expect("parse ok");
+        assert!(matches!(cfgs[0].kind, model::FieldKind::FixedSlice(..)));
     }
 }

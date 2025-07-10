@@ -267,6 +267,24 @@ mod tests {
         // Should validate without errors.
         validator::validate(&parsed).expect("validation should succeed");
     }
+
+    #[test]
+    fn parser_snapshot_basic_struct() {
+        use insta::assert_debug_snapshot;
+        let di: DeriveInput = parse_quote! {
+            struct Snap<'info> {
+                #[account(mut, signer)]
+                payer: Account<'info, u64>,
+                #[account(len = 3)]
+                pdas: Vec<AccountInfo<'static>>,
+            }
+        };
+
+        let parsed = parser::parse_fields(extract_named_fields(&di))
+            .expect("parse ok");
+
+        assert_debug_snapshot!(parsed);
+    }
 }
 
 #[cfg(test)]
