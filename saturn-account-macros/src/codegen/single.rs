@@ -4,6 +4,7 @@ use quote::quote;
 use syn::Ident;
 
 use crate::model::FieldCfg;
+use crate::codegen::utils::extract_inner_data_type;
 
 // Re-exported so the parent orchestrator can call it directly.
 pub(crate) fn generate_single_binding(
@@ -44,7 +45,7 @@ pub(crate) fn generate_single_binding(
     };
 
     let inner_ty_ts = {
-        let ty_inner = &cfg.base_ty;
+        let ty_inner = extract_inner_data_type(&cfg.base_ty).unwrap_or_else(|| cfg.base_ty.clone());
         quote! { #ty_inner }
     };
 

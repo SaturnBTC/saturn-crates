@@ -1,4 +1,5 @@
 use arch_program::utxo::UtxoMeta;
+use saturn_account_discriminator_derive::Discriminator;
 use saturn_account_macros::Accounts;
 use saturn_account_parser::codec::{Account, AccountLoader};
 use saturn_bitcoin_transactions::utxo_info::UtxoInfo;
@@ -6,6 +7,14 @@ use saturn_program_macros::{declare_id, saturn_program};
 use saturn_utxo_parser::UtxoParser;
 
 declare_id!("8YE2m8RGmFjyWkHfMV6aA1eeaoAj8ZqEXnoY6v1WKEwd");
+
+#[derive(Default, bytemuck::Pod, bytemuck::Zeroable, Discriminator, Clone, Copy)]
+#[repr(C)]
+pub struct UtxoMetaAccount {
+    pub utxo_meta: u64,
+    pub bump: u8,
+    _padding: [u8; 7],
+}
 
 #[derive(Accounts)]
 struct DepositAccounts<'info> {
@@ -27,6 +36,17 @@ struct DepositAccounts<'info> {
         program_id = arch_program::pubkey::Pubkey::default()
     )]
     escrow_utxo_bump: [u8; 1],
+
+    #[account(
+        zero_copy,
+        of = UtxoMetaAccount,
+        init,
+        mut,
+        payer = caller,
+        seeds = &[b"seeds", escrow_utxo_bump.as_ref()], 
+        program_id = arch_program::pubkey::Pubkey::default()
+    )]
+    escrow_utxo_account: AccountLoader<'info, UtxoMetaAccount>,
 }
 
 #[derive(Accounts)]
@@ -72,7 +92,7 @@ mod handlers {
 
     use super::*;
 
-    pub fn deposit<'info>(
+    pub fn deposit(
         mut ctx: Context<'info, DepositAccounts<'info>>,
         params: UtxoMeta,
     ) -> Result<(), ProgramError> {
@@ -83,7 +103,7 @@ mod handlers {
         Ok(())
     }
 
-    pub fn withdraw<'info>(
+    pub fn withdraw(
         mut ctx: Context<'info, WithdrawAccounts<'info>>,
         params: String,
     ) -> Result<(), arch_program::program_error::ProgramError> {
