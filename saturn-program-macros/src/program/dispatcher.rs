@@ -119,7 +119,7 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
             .collect();
 
         let struct_def: TokenStream = quote! {
-            #[derive(saturn_account_parser::__borsh::BorshSerialize, saturn_account_parser::__borsh::BorshDeserialize)]
+            #[derive(saturn_account_parser::__private::borsh::BorshSerialize, saturn_account_parser::__private::borsh::BorshDeserialize)]
             pub struct #struct_ident #struct_body
 
             impl #struct_ident {
@@ -195,7 +195,7 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
             d if d == #struct_path :: DISCRIMINATOR => {
                 // Use a mut slice so Borsh can advance the cursor while deserializing.
                 let mut data_slice: &[u8] = data;
-                let params: #struct_path = saturn_account_parser::__borsh::BorshDeserialize::deserialize(&mut data_slice)
+                let params: #struct_path = saturn_account_parser::__private::borsh::BorshDeserialize::deserialize(&mut data_slice)
                     .map_err(|e| ProgramError::BorshIoError(e.to_string()))?;
 
                 // Reject any trailing bytes that were not consumed during deserialization.
