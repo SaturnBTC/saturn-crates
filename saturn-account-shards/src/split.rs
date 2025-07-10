@@ -1178,7 +1178,7 @@ mod tests_loader {
             let tx_builder = new_tb!(MAX_USER_UTXOS, MAX_SHARDS_PER_POOL);
 
             // Empty loaders slice
-            let loaders: &[&AccountLoader<'static, MockShardZc>] = &[];
+            let loaders: &[AccountLoader<'static, MockShardZc>] = &[];
             const MAX_SELECTED: usize = 0;
             let unselected: ShardSet<MockShardZc, MAX_SELECTED> = ShardSet::from_loaders(loaders);
             let selected = unselected.select_with([] as [usize; 0]).unwrap();

@@ -186,11 +186,10 @@ pub fn create_loader_from(shard: &MockShardZc) -> AccountLoader<'static, MockSha
 /// Utility: leak an array of loaders built from a `Vec<MockShardZc>` and return a `'static` slice.
 pub fn leak_loaders_from_vec(
     shards: Vec<MockShardZc>,
-) -> &'static [&'static AccountLoader<'static, MockShardZc>] {
-    let mut boxed_vec: Vec<&'static AccountLoader<'static, MockShardZc>> =
-        Vec::with_capacity(shards.len());
+) -> &'static [AccountLoader<'static, MockShardZc>] {
+    let mut boxed_vec: Vec<AccountLoader<'static, MockShardZc>> = Vec::with_capacity(shards.len());
     for shard in shards {
-        let loader: &'static _ = Box::leak(Box::new(create_loader_from(&shard)));
+        let loader = create_loader_from(&shard);
         boxed_vec.push(loader);
     }
     Box::leak(boxed_vec.into_boxed_slice())
