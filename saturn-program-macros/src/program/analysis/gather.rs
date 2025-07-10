@@ -68,17 +68,32 @@ pub fn gather_fn_infos(item_mod: &ItemMod) -> (Vec<FnInfo>, Vec<TokenStream>) {
                         );
                     }
 
+                    // -------------------------------------------------
+                    // Generic parameter check – Anchor forbids generics on
+                    // instruction handlers to keep dispatch logic simple and
+                    // avoid type-inference headaches.  Mirror that behaviour.
+                    // -------------------------------------------------
+                    if !sig.generics.params.is_empty() {
+                        errors.push(
+                            Error::new_spanned(
+                                &sig.generics,
+                                "generic parameters are not supported on instruction handlers",
+                            )
+                            .to_compile_error(),
+                        );
+                    }
+
                     // -----------------------------------------------------------------
-                    // Parameter count check – must have **at least** two parameters:
-                    // (Context<'_, Accounts>, payload ...).  Additional payload
-                    // parameters are allowed and will be forwarded by the generated
+                    // Parameter count check – must have **at least** one parameter:
+                    // the `Context<'_, Accounts>` value.  Additional *payload* parameters
+                    // are optional and, when present, will be forwarded by the generated
                     // dispatcher.
                     // -----------------------------------------------------------------
-                    if sig.inputs.len() < 2 {
+                    if sig.inputs.is_empty() {
                         errors.push(
                             Error::new_spanned(
                                 sig,
-                                "handler must take at least two parameters: (Context<'_, Accounts>, params)",
+                                "handler must take at least one parameter: Context<'_, Accounts>",
                             )
                             .to_compile_error(),
                         );
@@ -196,17 +211,8 @@ pub fn gather_fn_infos(item_mod: &ItemMod) -> (Vec<FnInfo>, Vec<TokenStream>) {
                     let mut param_idents: Vec<syn::Ident> = Vec::new();
                     for arg in sig.inputs.iter().skip(1) {
                         if let FnArg::Typed(PatType { ty, pat, .. }) = arg {
-                            match &**ty {
-                                Type::Path(_tp) => {
-                                    param_tys.push((**ty).clone());
-                                }
-                                _ => {
-                                    errors.push(
-                                        Error::new_spanned(ty, "parameter type must be a path")
-                                            .to_compile_error(),
-                                    );
-                                }
-                            }
+                            // Accept **any** parameter type (paths, references, arrays, tuples, etc.).
+                            param_tys.push((**ty).clone());
 
                             // Extract parameter identifier for later use
                             match &**pat {

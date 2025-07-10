@@ -1,5 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod analysis;
 mod attr;

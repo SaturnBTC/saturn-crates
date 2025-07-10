@@ -119,7 +119,7 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
             .collect();
 
         let struct_def: TokenStream = quote! {
-            #[derive(borsh::BorshSerialize, borsh::BorshDeserialize)]
+            #[derive(saturn_account_parser::__borsh::BorshSerialize, saturn_account_parser::__borsh::BorshDeserialize)]
             pub struct #struct_ident #struct_body
 
             impl #struct_ident {
@@ -159,7 +159,10 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
                 Span::call_site(),
             );
             let rune_set_path: syn::Path =
-                syn::parse_str("crate::__SaturnDefaultRuneSet").expect("internal path parse");
+                // Use a path relative to the *current* module so that the macro keeps working
+                // when #[saturn_program] is applied inside a nested module. This avoids relying on
+                // the alias being available at crate root.
+                syn::parse_str("self::__SaturnDefaultRuneSet").expect("internal path parse");
 
             quote! {
                 let mut accounts_struct = <#acc_ty as saturn_account_parser::Accounts>::try_accounts(accounts)?;
@@ -190,8 +193,15 @@ pub fn generate(attr_cfg: &AttrConfig, analysis: &AnalysisResult) -> TokenStream
 
         let arm: TokenStream = quote! {
             d if d == #struct_path :: DISCRIMINATOR => {
-                let params: #struct_path = borsh::BorshDeserialize::try_from_slice(data)
+                // Use a mut slice so Borsh can advance the cursor while deserializing.
+                let mut data_slice: &[u8] = data;
+                let params: #struct_path = saturn_account_parser::__borsh::BorshDeserialize::deserialize(&mut data_slice)
                     .map_err(|e| ProgramError::BorshIoError(e.to_string()))?;
+
+                // Reject any trailing bytes that were not consumed during deserialization.
+                if !data_slice.is_empty() {
+                    return Err(ProgramError::InvalidInstructionData);
+                }
                 #arm_body
             }
         };

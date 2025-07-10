@@ -1,6 +1,7 @@
-use proc_macro2::{Span, TokenTree};
+use proc_macro2::Span;
 use quote::ToTokens;
 use syn::parse_quote;
+use syn::visit::Visit;
 use syn::{FnArg, GenericParam, Item, ItemMod, LitInt, Type};
 
 use crate::program::attr::AttrConfig;
@@ -67,37 +68,44 @@ pub fn rewrite_context_params(item_mod: &mut ItemMod, fn_infos: &[FnInfo], attr_
                             }
                         };
 
-                        // Helper: recursively search a token stream for an identifier.
-                        fn stream_contains_ident(
-                            ts: &proc_macro2::TokenStream,
-                            ident: &str,
-                        ) -> bool {
-                            for tt in ts.clone() {
-                                match tt {
-                                    TokenTree::Ident(ref id) if id == ident => return true,
-                                    TokenTree::Group(ref g)
-                                        if stream_contains_ident(&g.stream(), ident) =>
-                                    {
-                                        return true
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            false
-                        }
-
-                        // Detect if `'info` is already declared either as an explicit lifetime
-                        // parameter or inside a `for<'info>` binder in the where-clause.
+                        // -------------------------------------------------------------
+                        // Detect if the `'info` lifetime is already in scope either as
+                        // an explicit generic parameter or used anywhere inside the
+                        // `where`-clause.  We switch from the previous token-stream
+                        // scan to a proper AST walk (mirroring Anchor’s approach) to
+                        // avoid false positives coming from docs/attributes.
+                        // -------------------------------------------------------------
                         let lifetime_in_generics = fn_item.sig.generics.params.iter().any(|gp| {
                             matches!(gp, GenericParam::Lifetime(lt) if lt.lifetime.ident == "info")
                         });
+
+                        // Visitor that searches for a specific lifetime inside a syntax tree.
+                        struct FindLifetime<'a> {
+                            target: &'a str,
+                            found: bool,
+                        }
+
+                        impl<'ast, 'a> Visit<'ast> for FindLifetime<'a> {
+                            fn visit_lifetime(&mut self, lt: &'ast syn::Lifetime) {
+                                if lt.ident == self.target {
+                                    self.found = true;
+                                }
+                            }
+                        }
 
                         let lifetime_in_where = fn_item
                             .sig
                             .generics
                             .where_clause
                             .as_ref()
-                            .map(|wc| stream_contains_ident(&wc.to_token_stream(), "info"))
+                            .map(|wc| {
+                                let mut visitor = FindLifetime {
+                                    target: "info",
+                                    found: false,
+                                };
+                                visitor.visit_where_clause(wc);
+                                visitor.found
+                            })
                             .unwrap_or(false);
 
                         let has_info_lifetime = lifetime_in_generics || lifetime_in_where;

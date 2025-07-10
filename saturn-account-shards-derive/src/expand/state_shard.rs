@@ -41,7 +41,10 @@ fn generate_impl(info: &StructInfo, args: &ShardArgs) -> Result<proc_macro2::Tok
             // Fall back to the default alias defined by the `#[program]` macro **and**
             // produce a friendly compile-time error if that alias is missing.
             (
-                syn::parse_quote!(crate::__SaturnDefaultRuneSet),
+                // Look for the alias in the current or any ancestor module rather than requiring
+                // it to live in crate root. This matches the new behaviour of the saturn_program
+                // macro which emits the alias next to the annotated module.
+                syn::parse_quote!(self::__SaturnDefaultRuneSet),
                 quote! {
                     // This constant fails to compile with a descriptive error message if the
                     // `__SaturnDefaultRuneSet` alias is not available in the current crate.
@@ -51,7 +54,7 @@ fn generate_impl(info: &StructInfo, args: &ShardArgs) -> Result<proc_macro2::Tok
                         // the compiler produces an error pointing here, prompting the developer
                         // to either bring the alias into scope (via the `#[program]` macro) or
                         // specify `#[shard(rune_set_type = "...")]` explicitly.
-                        impl _SaturnDefaultRuneSetAvailable for crate::__SaturnDefaultRuneSet {}
+                        impl _SaturnDefaultRuneSetAvailable for self::__SaturnDefaultRuneSet {}
                     };
                 },
             )
